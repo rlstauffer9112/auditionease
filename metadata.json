@@ -1,0 +1,5 @@
+{
+  "name": "AuditionEase",
+  "description": "A comprehensive audition management system for musical groups and performers. Track registrations, schedule slots, and manage callbacks.",
+  "requestFramePermissions": []
+}
