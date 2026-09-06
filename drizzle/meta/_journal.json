@@ -57,6 +57,13 @@
       "when": 1788670602842,
       "tag": "0007_clammy_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788672457938,
+      "tag": "0008_omniscient_proemial_gods",
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AuthPage } from './components/AuthPage';
 import { VerifyPage } from './components/VerifyPage';
 import { LandingPage } from './components/LandingPage';
+import { InvitePage } from './components/InvitePage';
+import { Link2, Copy, Check } from 'lucide-react';
 import { LogOut } from 'lucide-react';
 
 // --- Types ---
@@ -64,6 +66,7 @@ interface Audition {
   date: string;
   location: string;
   status: 'open' | 'closed' | 'completed';
+  inviteCode: string;
 }
 
 interface AuditionSlot {
@@ -96,6 +99,13 @@ export default function App() {
   );
 }
 
+const UNAMBIGUOUS_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function generateInviteCode(): string {
+  const arr = new Uint8Array(6);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => UNAMBIGUOUS_CHARS[b % UNAMBIGUOUS_CHARS.length]).join('');
+}
+
 function AppContent() {
   const { user, loading: authLoading, logout } = useAuth();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -112,7 +122,7 @@ function AppContent() {
   const [showAddPerformer, setShowAddPerformer] = useState(false);
   const [showGenerateSlots, setShowGenerateSlots] = useState(false);
   const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
-  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '' });
+  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '' });
   const [newPerformer, setNewPerformer] = useState({ firstName: '', lastName: '', email: '', phone: '', notes: '' });
   const [performerCustomData, setPerformerCustomData] = useState<Record<string, any>>({});
 
@@ -123,6 +133,11 @@ function AppContent() {
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [showPerformerDetails, setShowPerformerDetails] = useState<Performer | null>(null);
   const [performerSearch, setPerformerSearch] = useState('');
+  const [evaluatingSlotId, setEvaluatingSlotId] = useState<number | null>(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  const [evalScore, setEvalScore] = useState('');
+  const [evalFeedback, setEvalFeedback] = useState('');
+  const [evalPass, setEvalPass] = useState(false);
   const [editingPerformer, setEditingPerformer] = useState<Performer | null>(null);
   const [editPerformerData, setEditPerformerData] = useState({ firstName: '', lastName: '', email: '', phone: '', notes: '' });
   const [editPerformerCustomData, setEditPerformerCustomData] = useState<Record<string, any>>({});
@@ -179,6 +194,11 @@ function AppContent() {
     return <VerifyPage />;
   }
 
+  const inviteMatch = currentPath.match(/^\/invite\/([^/]+)$/);
+  if (inviteMatch) {
+    return <InvitePage inviteCode={inviteMatch[1]} />;
+  }
+
   if (!user) {
     if (currentPath === '/login') {
       return <AuthPage onBack={navigateToHome} />;
@@ -228,7 +248,10 @@ function AppContent() {
       if (res.ok) {
         fetchData();
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '' });
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to create audition');
       }
     } catch (err) {
       console.error('Error adding audition:', err);
@@ -560,7 +583,7 @@ function AppContent() {
                   <p className="text-[#6B7280]">Schedule slots, track vocalists, and manage section placement.</p>
                 </div>
                 <button 
-                  onClick={() => setShowAddAudition(true)}
+                  onClick={() => { setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode() }); setShowAddAudition(true); }}
                   className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
                 >
                   <Plus size={20} />
@@ -612,6 +635,21 @@ function AppContent() {
                     <div className="flex justify-between items-start mb-8">
                       <div>
                         <h3 className="text-2xl font-bold mb-2">{selectedAudition.title}</h3>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Link2 size={14} className="text-[#4F46E5]" />
+                          <span className="text-sm font-mono text-[#4F46E5]">{window.location.origin}/invite/{selectedAudition.inviteCode}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/invite/${selectedAudition.inviteCode}`);
+                              setCopiedInvite(true);
+                              setTimeout(() => setCopiedInvite(false), 2000);
+                            }}
+                            className="text-[#6B7280] hover:text-[#4F46E5] transition-colors"
+                            title="Copy invite link"
+                          >
+                            {copiedInvite ? <Check size={14} className="text-[#10B981]" /> : <Copy size={14} />}
+                          </button>
+                        </div>
                         <p className="text-[#6B7280]">{selectedAudition.description}</p>
                       </div>
                       <div className="flex gap-3">
@@ -711,10 +749,10 @@ function AppContent() {
                                   {slot.status === 'booked' && (
                                     <button
                                       onClick={() => {
-                                        const score = prompt("Enter score (1-10):");
-                                        const feedback = prompt("Enter feedback:");
-                                        const pass = confirm("Pass to callback?");
-                                        if (score) handleCompleteAudition(slot.id, parseInt(score), feedback || '', pass);
+                                        setEvaluatingSlotId(slot.id);
+                                        setEvalScore('');
+                                        setEvalFeedback('');
+                                        setEvalPass(false);
                                       }}
                                       className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
                                     >
@@ -795,7 +833,7 @@ function AppContent() {
                   </thead>
                   <tbody className="divide-y divide-[#F3F4F6]">
                     {filteredPerformers.map(performer => (
-                      <tr key={performer.id} className="hover:bg-[#F9FAFB] transition-colors group">
+                      <tr key={performer.id} onClick={() => setShowPerformerDetails(performer)} className="hover:bg-[#F9FAFB] transition-colors group cursor-pointer">
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold">
@@ -811,12 +849,7 @@ function AppContent() {
                           </div>
                         </td>
                         <td className="px-6 py-5 text-right">
-                          <button 
-                            onClick={() => setShowPerformerDetails(performer)}
-                            className="text-[#6B7280] hover:text-[#4F46E5] transition-colors"
-                          >
-                            <ChevronRight size={20} />
-                          </button>
+                          <ChevronRight size={20} className="text-[#6B7280] group-hover:text-[#4F46E5] transition-colors" />
                         </td>
                       </tr>
                     ))}
@@ -1184,15 +1217,28 @@ function AppContent() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Invite Code</label>
+                <input
+                  required
+                  type="text"
+                  maxLength={31}
+                  value={newAudition.inviteCode}
+                  onChange={e => setNewAudition({...newAudition, inviteCode: e.target.value.replace(/[^A-Za-z0-9_-]/g, '')})}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all font-mono tracking-wider"
+                  placeholder="e.g. ABC123"
+                />
+                <p className="text-xs text-[#9CA3AF] mt-1">Letters, numbers, underscores, and dashes only. Shared with participants to sign up.</p>
+              </div>
               <div className="flex gap-3 pt-4">
-                <button 
+                <button
                   type="button"
                   onClick={() => setShowAddAudition(false)}
                   className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
                 >
@@ -1513,6 +1559,74 @@ function AppContent() {
           </motion.div>
         </div>
       )}
+      {evaluatingSlotId !== null && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
+          >
+            <h3 className="text-xl font-bold text-[#111827] mb-6">Evaluate Audition</h3>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Score (1–10)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={evalScore}
+                  onChange={e => setEvalScore(e.target.value)}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent outline-none"
+                  placeholder="Enter score"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Feedback</label>
+                <textarea
+                  value={evalFeedback}
+                  onChange={e => setEvalFeedback(e.target.value)}
+                  rows={3}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent outline-none resize-none"
+                  placeholder="Enter feedback"
+                />
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={evalPass}
+                  onChange={e => setEvalPass(e.target.checked)}
+                  className="w-5 h-5 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                />
+                <span className="text-sm font-bold text-[#374151]">Pass to callback</span>
+              </label>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => setEvaluatingSlotId(null)}
+                className="flex-1 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const s = parseInt(evalScore);
+                  if (!s || s < 1 || s > 10) return;
+                  handleCompleteAudition(evaluatingSlotId, s, evalFeedback, evalPass);
+                  setEvaluatingSlotId(null);
+                }}
+                className="flex-1 bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
+              >
+                Submit
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {showPerformerDetails && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
           <motion.div 
@@ -1567,7 +1681,12 @@ function AppContent() {
                       return (
                         <div key={cfv.id} className="flex justify-between items-center py-2 border-b border-[#F3F4F6] last:border-0">
                           <span className="text-sm font-medium text-[#6B7280]">{attr.label}</span>
-                          <span className="text-sm font-bold text-[#111827]">{displayValue}</span>
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-[#111827]">{displayValue}</span>
+                            <p className="text-[10px] text-[#9CA3AF] mt-0.5">
+                              {new Date(cfv.updatedAt).toLocaleString()}
+                            </p>
+                          </div>
                         </div>
                       );
                     })}

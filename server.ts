@@ -14,6 +14,12 @@ const client = new BrevoClient({ apiKey: process.env.BREVO_API_KEY || '' });
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
+const UNAMBIGUOUS_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function generateInviteCode(): string {
+  const bytes = crypto.randomBytes(6);
+  return Array.from(bytes, b => UNAMBIGUOUS_CHARS[b % UNAMBIGUOUS_CHARS.length]).join('');
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -231,16 +237,35 @@ async function startServer() {
       if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
       const { customFieldValues, ...performerData } = req.body;
       const updated = await db.update(performers).set(performerData).where(eq(performers.id, performerId)).returning();
-      await db.delete(performerCustomFields).where(eq(performerCustomFields.performerId, performerId));
-      if (customFieldValues && customFieldValues.length > 0) {
-        await db.insert(performerCustomFields).values(
-          customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
+      const existingCf = await db.select().from(performerCustomFields)
+        .where(eq(performerCustomFields.performerId, performerId));
+      const existingMap = new Map(existingCf.map(cf => [cf.customAttributeId, cf]));
+      const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues ?? [];
+      const incomingIds = new Set(incomingCfs.map(cf => cf.customAttributeId));
+
+      for (const cf of incomingCfs) {
+        const existing = existingMap.get(cf.customAttributeId);
+        if (existing) {
+          if (existing.value !== cf.value) {
+            await db.update(performerCustomFields)
+              .set({ value: cf.value, updatedAt: new Date() })
+              .where(eq(performerCustomFields.id, existing.id));
+          }
+        } else {
+          await db.insert(performerCustomFields).values({
             performerId,
             customAttributeId: cf.customAttributeId,
             value: cf.value,
             updatedAt: new Date(),
-          }))
-        );
+          });
+        }
+      }
+
+      const removedIds = existingCf
+        .filter(cf => !incomingIds.has(cf.customAttributeId))
+        .map(cf => cf.id);
+      if (removedIds.length > 0) {
+        await db.delete(performerCustomFields).where(inArray(performerCustomFields.id, removedIds));
       }
       const savedCf = await db.select().from(performerCustomFields)
         .where(eq(performerCustomFields.performerId, performerId));
@@ -266,7 +291,20 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const newAudition = await db.insert(auditions).values({ ...req.body, userId }).returning();
+      const { inviteCode, ...rest } = req.body;
+      const code = (inviteCode || generateInviteCode()).trim();
+      if (code.length === 0 || code.length > 31) {
+        return res.status(400).json({ error: 'Invite code must be between 1 and 31 characters' });
+      }
+      if (!/^[A-Za-z0-9_-]+$/.test(code)) {
+        return res.status(400).json({ error: 'Invite code can only contain letters, numbers, underscores, and dashes' });
+      }
+      const existing = await db.select({ id: auditions.id }).from(auditions)
+        .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`);
+      if (existing.length > 0) {
+        return res.status(409).json({ error: 'Invite code is already in use' });
+      }
+      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code }).returning();
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
@@ -434,6 +472,194 @@ async function startServer() {
   });
 
   // --- Auth Routes ---
+
+  // --- Public invite endpoints (no auth required) ---
+
+  app.get('/api/invite/:code', async (req, res) => {
+    try {
+      const code = req.params.code;
+      const audition = await db.select().from(auditions)
+        .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
+        .then(rows => rows[0]);
+      if (!audition) return res.status(404).json({ error: 'Audition not found' });
+      const attrs = await db.select().from(customAttributes)
+        .where(eq(customAttributes.userId, audition.userId));
+      res.json({
+        audition: { id: audition.id, title: audition.title, description: audition.description, date: audition.date, location: audition.location, status: audition.status },
+        customAttributes: attrs,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to look up audition' });
+    }
+  });
+
+  app.post('/api/invite/:code/verify-email', async (req, res) => {
+    try {
+      const code = req.params.code;
+      const { email } = req.body;
+      const audition = await db.select().from(auditions)
+        .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
+        .then(rows => rows[0]);
+      if (!audition) return res.status(404).json({ error: 'Audition not found' });
+
+      const verifyCode = crypto.randomInt(100000, 999999).toString();
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      await db.insert(loginTokens).values({
+        userId: audition.userId,
+        token: `invite:${token}:${verifyCode}:${email}`,
+        expiresAt,
+      });
+
+      const verifyLink = `Your verification code is: ${verifyCode}`;
+
+      try {
+        if (process.env.BREVO_API_KEY) {
+          await client.transactionalEmails.sendTransacEmail({
+            subject: "AuditionEase - Verify your email",
+            htmlContent: `<p>Your verification code for <strong>${audition.title}</strong> is:</p><h2>${verifyCode}</h2><p>This code expires in 15 minutes.</p>`,
+            sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
+            to: [{ email }],
+          });
+        } else {
+          console.log('--- INVITE VERIFY CODE (No Brevo API Key) ---');
+          console.log(`Email: ${email}, Code: ${verifyCode}`);
+          console.log('----------------------------------------------');
+        }
+      } catch (emailErr) {
+        console.error('Email send failed:', emailErr);
+        console.log('--- INVITE VERIFY CODE (Email failed) ---');
+        console.log(`Email: ${email}, Code: ${verifyCode}`);
+        console.log('------------------------------------------');
+      }
+
+      res.json({ success: true, token });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to send verification email' });
+    }
+  });
+
+  app.post('/api/invite/:code/confirm-email', async (req, res) => {
+    try {
+      const code = req.params.code;
+      const { token, verifyCode, email } = req.body;
+
+      const expectedToken = `invite:${token}:${verifyCode}:${email}`;
+      const loginToken = await db.select().from(loginTokens)
+        .where(and(
+          eq(loginTokens.token, expectedToken),
+          eq(loginTokens.used, false),
+          gt(loginTokens.expiresAt, new Date())
+        ))
+        .then(rows => rows[0]);
+
+      if (!loginToken) {
+        return res.status(400).json({ error: 'Invalid or expired verification code' });
+      }
+
+      await db.update(loginTokens).set({ used: true }).where(eq(loginTokens.id, loginToken.id));
+
+      const audition = await db.select().from(auditions)
+        .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
+        .then(rows => rows[0]);
+      if (!audition) return res.status(404).json({ error: 'Audition not found' });
+
+      const existing = await db.select().from(performers)
+        .where(and(eq(performers.userId, audition.userId), sql`lower(${performers.email}) = ${email.toLowerCase()}`))
+        .then(rows => rows[0]);
+
+      let performerData = null;
+      if (existing) {
+        const cfValues = await db.select().from(performerCustomFields)
+          .where(eq(performerCustomFields.performerId, existing.id));
+        performerData = { ...existing, customFieldValues: cfValues };
+      }
+
+      res.json({ verified: true, performer: performerData });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to confirm email' });
+    }
+  });
+
+  app.post('/api/invite/:code/submit', async (req, res) => {
+    try {
+      const code = req.params.code;
+      const { email, firstName, lastName, phone, customFieldValues } = req.body;
+
+      if (!email || !firstName || !lastName) {
+        return res.status(400).json({ error: 'First name, last name, and email are required' });
+      }
+
+      const audition = await db.select().from(auditions)
+        .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
+        .then(rows => rows[0]);
+      if (!audition) return res.status(404).json({ error: 'Audition not found' });
+
+      const existing = await db.select().from(performers)
+        .where(and(eq(performers.userId, audition.userId), sql`lower(${performers.email}) = ${email.toLowerCase()}`))
+        .then(rows => rows[0]);
+
+      let performer;
+      if (existing) {
+        const updated = await db.update(performers)
+          .set({ firstName, lastName, phone: phone || null })
+          .where(eq(performers.id, existing.id))
+          .returning();
+        performer = updated[0];
+
+        const existingCf = await db.select().from(performerCustomFields)
+          .where(eq(performerCustomFields.performerId, existing.id));
+        const existingMap = new Map(existingCf.map(cf => [cf.customAttributeId, cf]));
+        const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues ?? [];
+        const incomingIds = new Set(incomingCfs.map(cf => cf.customAttributeId));
+
+        for (const cf of incomingCfs) {
+          const prev = existingMap.get(cf.customAttributeId);
+          if (prev) {
+            if (prev.value !== cf.value) {
+              await db.update(performerCustomFields)
+                .set({ value: cf.value, updatedAt: new Date() })
+                .where(eq(performerCustomFields.id, prev.id));
+            }
+          } else {
+            await db.insert(performerCustomFields).values({
+              performerId: existing.id,
+              customAttributeId: cf.customAttributeId,
+              value: cf.value,
+              updatedAt: new Date(),
+            });
+          }
+        }
+        const removedIds = existingCf
+          .filter(cf => !incomingIds.has(cf.customAttributeId))
+          .map(cf => cf.id);
+        if (removedIds.length > 0) {
+          await db.delete(performerCustomFields).where(inArray(performerCustomFields.id, removedIds));
+        }
+      } else {
+        const created = await db.insert(performers)
+          .values({ userId: audition.userId, firstName, lastName, email, phone: phone || null })
+          .returning();
+        performer = created[0];
+
+        if (customFieldValues && customFieldValues.length > 0) {
+          await db.insert(performerCustomFields).values(
+            customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
+              performerId: performer.id,
+              customAttributeId: cf.customAttributeId,
+              value: cf.value,
+              updatedAt: new Date(),
+            }))
+          );
+        }
+      }
+
+      res.json({ success: true, performer });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to submit performer information' });
+    }
+  });
 
   app.post('/api/auth/register', async (req, res) => {
     try {

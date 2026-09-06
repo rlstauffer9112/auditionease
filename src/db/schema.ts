@@ -44,6 +44,7 @@ export const auditions = pgTable('auditions', {
   date: text('date').notNull(),
   location: text('location'),
   status: text('status').$type<'open' | 'closed' | 'completed'>().default('open'),
+  inviteCode: text('invite_code').notNull().unique(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('auditions_user_id_idx').on(table.userId),
