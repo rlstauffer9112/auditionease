@@ -2,8 +2,8 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { performers, auditions, auditionSlots, callbacks, customAttributes, users, loginTokens, userSettings } from './src/db/schema';
-import { eq, and, asc, gt } from 'drizzle-orm';
+import { performers, auditions, auditionSlots, callbacks, customAttributes, performerCustomFields, users, loginTokens, userSettings } from './src/db/schema';
+import { eq, and, asc, gt, desc, sql, inArray } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
@@ -32,6 +32,13 @@ async function startServer() {
     } catch {
       return null;
     }
+  };
+
+  const verifyAuditionOwnership = async (auditionId: number, userId: number): Promise<boolean> => {
+    const audition = await db.select({ id: auditions.id }).from(auditions)
+      .where(and(eq(auditions.id, auditionId), eq(auditions.userId, userId)))
+      .then(rows => rows[0]);
+    return !!audition;
   };
 
   // --- API Routes ---
@@ -102,8 +109,10 @@ async function startServer() {
 
   // Custom Attributes
   app.get('/api/custom-attributes', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const attrs = await db.select().from(customAttributes).orderBy(asc(customAttributes.order));
+      const attrs = await db.select().from(customAttributes).where(eq(customAttributes.userId, userId)).orderBy(asc(customAttributes.order));
       res.json(attrs);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch custom attributes' });
@@ -111,17 +120,49 @@ async function startServer() {
   });
 
   app.post('/api/custom-attributes', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const newAttr = await db.insert(customAttributes).values(req.body).returning();
+      const [maxRow] = await db.select({ maxOrder: sql<number>`coalesce(max(${customAttributes.order}), -1)` })
+        .from(customAttributes).where(eq(customAttributes.userId, userId));
+      const nextOrder = (maxRow?.maxOrder ?? -1) + 1;
+      const newAttr = await db.insert(customAttributes).values({ ...req.body, userId, order: nextOrder }).returning();
       res.json(newAttr[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create custom attribute' });
     }
   });
 
-  app.delete('/api/custom-attributes/:id', async (req, res) => {
+  app.put('/api/custom-attributes/reorder', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      await db.delete(customAttributes).where(eq(customAttributes.id, parseInt(req.params.id)));
+      const { orderedIds } = req.body as { orderedIds: number[] };
+      if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds must be an array' });
+      const existing = await db.select({ id: customAttributes.id }).from(customAttributes)
+        .where(eq(customAttributes.userId, userId));
+      const ownedIds = new Set(existing.map(r => r.id));
+      for (const id of orderedIds) {
+        if (!ownedIds.has(id)) return res.status(403).json({ error: 'Forbidden' });
+      }
+      await Promise.all(orderedIds.map((id, index) =>
+        db.update(customAttributes).set({ order: index }).where(eq(customAttributes.id, id))
+      ));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to reorder attributes' });
+    }
+  });
+
+  app.delete('/api/custom-attributes/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const attrId = parseInt(req.params.id);
+      const attr = await db.select().from(customAttributes).where(eq(customAttributes.id, attrId)).then(rows => rows[0]);
+      if (!attr || attr.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      await db.delete(performerCustomFields).where(eq(performerCustomFields.customAttributeId, attrId));
+      await db.delete(customAttributes).where(eq(customAttributes.id, attrId));
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Failed to delete custom attribute' });
@@ -130,32 +171,80 @@ async function startServer() {
 
   // Performers
   app.get('/api/performers', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const allPerformers = await db.select().from(performers);
-      res.json(allPerformers);
+      const allPerformers = await db.select().from(performers).where(eq(performers.userId, userId));
+      const performerIds = allPerformers.map(p => p.id);
+      let allCustomFieldValues: (typeof performerCustomFields.$inferSelect)[] = [];
+      if (performerIds.length > 0) {
+        allCustomFieldValues = await db.select().from(performerCustomFields)
+          .where(inArray(performerCustomFields.performerId, performerIds));
+      }
+      const cfByPerformer = new Map<number, typeof allCustomFieldValues>();
+      for (const cf of allCustomFieldValues) {
+        let arr = cfByPerformer.get(cf.performerId);
+        if (!arr) { arr = []; cfByPerformer.set(cf.performerId, arr); }
+        arr.push(cf);
+      }
+      res.json(allPerformers.map(p => ({
+        ...p,
+        customFieldValues: cfByPerformer.get(p.id) || [],
+      })));
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch performers' });
     }
   });
 
   app.post('/api/performers', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const newPerformer = await db.insert(performers).values(req.body).returning();
-      res.json(newPerformer[0]);
+      const { customFieldValues, ...performerData } = req.body;
+      const newPerformer = await db.insert(performers).values({ ...performerData, userId }).returning();
+      const performerId = newPerformer[0].id;
+      if (customFieldValues && customFieldValues.length > 0) {
+        await db.insert(performerCustomFields).values(
+          customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
+            performerId,
+            customAttributeId: cf.customAttributeId,
+            value: cf.value,
+            updatedAt: new Date(),
+          }))
+        );
+      }
+      const savedCf = await db.select().from(performerCustomFields)
+        .where(eq(performerCustomFields.performerId, performerId));
+      res.json({ ...newPerformer[0], customFieldValues: savedCf });
     } catch (err) {
       res.status(500).json({ error: 'Failed to create performer' });
     }
   });
 
   app.put('/api/performers/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
       const { id } = req.params;
-      const updated = await db.update(performers).set(req.body).where(eq(performers.id, parseInt(id))).returning();
-      if (updated.length === 0) {
-        res.status(404).json({ error: 'Performer not found' });
-        return;
+      const performerId = parseInt(id);
+      const existing = await db.select().from(performers).where(eq(performers.id, performerId)).then(rows => rows[0]);
+      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      const { customFieldValues, ...performerData } = req.body;
+      const updated = await db.update(performers).set(performerData).where(eq(performers.id, performerId)).returning();
+      await db.delete(performerCustomFields).where(eq(performerCustomFields.performerId, performerId));
+      if (customFieldValues && customFieldValues.length > 0) {
+        await db.insert(performerCustomFields).values(
+          customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
+            performerId,
+            customAttributeId: cf.customAttributeId,
+            value: cf.value,
+            updatedAt: new Date(),
+          }))
+        );
       }
-      res.json(updated[0]);
+      const savedCf = await db.select().from(performerCustomFields)
+        .where(eq(performerCustomFields.performerId, performerId));
+      res.json({ ...updated[0], customFieldValues: savedCf });
     } catch (err) {
       res.status(500).json({ error: 'Failed to update performer' });
     }
@@ -163,8 +252,10 @@ async function startServer() {
 
   // Auditions
   app.get('/api/auditions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const allAuditions = await db.select().from(auditions);
+      const allAuditions = await db.select().from(auditions).where(eq(auditions.userId, userId));
       res.json(allAuditions);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch auditions' });
@@ -172,8 +263,10 @@ async function startServer() {
   });
 
   app.post('/api/auditions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const newAudition = await db.insert(auditions).values(req.body).returning();
+      const newAudition = await db.insert(auditions).values({ ...req.body, userId }).returning();
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
@@ -182,8 +275,12 @@ async function startServer() {
 
   // Slots
   app.get('/api/auditions/:id/slots', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await verifyAuditionOwnership(auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
     try {
-      const slots = await db.select().from(auditionSlots).where(eq(auditionSlots.auditionId, parseInt(req.params.id)));
+      const slots = await db.select().from(auditionSlots).where(eq(auditionSlots.auditionId, auditionId));
       res.json(slots);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch slots' });
@@ -191,6 +288,9 @@ async function startServer() {
   });
 
   app.post('/api/slots', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!await verifyAuditionOwnership(req.body.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
     try {
       const newSlot = await db.insert(auditionSlots).values(req.body).returning();
       res.json(newSlot[0]);
@@ -201,7 +301,11 @@ async function startServer() {
   });
 
   app.patch('/api/slots/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
+      const slot = await db.select().from(auditionSlots).where(eq(auditionSlots.id, parseInt(req.params.id))).then(rows => rows[0]);
+      if (!slot || !slot.auditionId || !await verifyAuditionOwnership(slot.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
       const updatedSlot = await db.update(auditionSlots)
         .set(req.body)
         .where(eq(auditionSlots.id, parseInt(req.params.id)))
@@ -214,8 +318,12 @@ async function startServer() {
 
   // Callbacks
   app.get('/api/auditions/:id/callbacks', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await verifyAuditionOwnership(auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
     try {
-      const auditionCallbacks = await db.select().from(callbacks).where(eq(callbacks.auditionId, parseInt(req.params.id)));
+      const auditionCallbacks = await db.select().from(callbacks).where(eq(callbacks.auditionId, auditionId));
       res.json(auditionCallbacks);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch callbacks' });
@@ -223,6 +331,9 @@ async function startServer() {
   });
 
   app.post('/api/callbacks', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!await verifyAuditionOwnership(req.body.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
     try {
       const newCallback = await db.insert(callbacks).values(req.body).returning();
       res.json(newCallback[0]);
@@ -232,7 +343,11 @@ async function startServer() {
   });
 
   app.patch('/api/callbacks/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
+      const callback = await db.select().from(callbacks).where(eq(callbacks.id, parseInt(req.params.id))).then(rows => rows[0]);
+      if (!callback || !callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
       const updated = await db.update(callbacks)
         .set(req.body)
         .where(eq(callbacks.id, parseInt(req.params.id)))
@@ -248,7 +363,11 @@ async function startServer() {
   });
 
   app.delete('/api/callbacks/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
+      const callback = await db.select().from(callbacks).where(eq(callbacks.id, parseInt(req.params.id))).then(rows => rows[0]);
+      if (!callback || !callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
       await db.delete(callbacks).where(eq(callbacks.id, parseInt(req.params.id)));
       res.json({ success: true });
     } catch (err) {
@@ -257,6 +376,8 @@ async function startServer() {
   });
 
   app.post('/api/callbacks/:id/notify', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
       const callback = await db.select().from(callbacks)
         .where(eq(callbacks.id, parseInt(req.params.id)))
@@ -264,6 +385,7 @@ async function startServer() {
       if (!callback) {
         return res.status(404).json({ error: 'Callback not found' });
       }
+      if (!callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
 
       const performer = callback.performerId
         ? await db.select().from(performers).where(eq(performers.id, callback.performerId)).then(rows => rows[0])

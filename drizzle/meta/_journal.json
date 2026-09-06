@@ -29,6 +29,34 @@
       "when": 1788661800000,
       "tag": "0003_remove_voicetype_experience",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788667996939,
+      "tag": "0004_eager_purple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788668744525,
+      "tag": "0005_supreme_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788669419351,
+      "tag": "0006_aberrant_ser_duncan",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788670602842,
+      "tag": "0007_clammy_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

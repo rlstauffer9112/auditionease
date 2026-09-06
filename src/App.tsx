@@ -19,7 +19,9 @@ import {
   Pencil,
   Mail,
   Trash2,
-  Undo2
+  Undo2,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -29,6 +31,13 @@ import { LandingPage } from './components/LandingPage';
 import { LogOut } from 'lucide-react';
 
 // --- Types ---
+interface PerformerCustomFieldValue {
+  id: number;
+  customAttributeId: number;
+  value: string;
+  updatedAt: string;
+}
+
 interface Performer {
   id: number;
   firstName: string;
@@ -36,7 +45,7 @@ interface Performer {
   email: string;
   phone: string;
   notes: string;
-  customFields: string; // JSON string
+  customFieldValues: PerformerCustomFieldValue[];
 }
 
 interface CustomAttribute {
@@ -135,6 +144,17 @@ function AppContent() {
     setCurrentPath('/');
   };
 
+  const authFetch = (url: string, opts: RequestInit = {}) => {
+    const token = localStorage.getItem('sessionToken');
+    return fetch(url, {
+      ...opts,
+      headers: {
+        ...opts.headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  };
+
   useEffect(() => {
     const handlePopState = () => {
       setCurrentPath(window.location.pathname);
@@ -170,9 +190,9 @@ function AppContent() {
     setLoading(true);
     try {
       const [audRes, perfRes, attrRes] = await Promise.all([
-        fetch('/api/auditions'),
-        fetch('/api/performers'),
-        fetch('/api/custom-attributes')
+        authFetch('/api/auditions'),
+        authFetch('/api/performers'),
+        authFetch('/api/custom-attributes')
       ]);
       const audData = await audRes.json();
       const perfData = await perfRes.json();
@@ -189,7 +209,7 @@ function AppContent() {
 
   const fetchSlots = async (auditionId: number) => {
     try {
-      const res = await fetch(`/api/auditions/${auditionId}/slots`);
+      const res = await authFetch(`/api/auditions/${auditionId}/slots`);
       const data = await res.json();
       setSlots(data);
     } catch (err) {
@@ -200,7 +220,7 @@ function AppContent() {
   const handleAddAudition = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/auditions', {
+      const res = await authFetch('/api/auditions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAudition)
@@ -218,13 +238,18 @@ function AppContent() {
   const handleAddPerformer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/performers', {
+      const customFieldValues = customAttributes
+        .filter(attr => performerCustomData[attr.label] !== undefined && performerCustomData[attr.label] !== '')
+        .map(attr => ({
+          customAttributeId: attr.id,
+          value: typeof performerCustomData[attr.label] === 'object'
+            ? JSON.stringify(performerCustomData[attr.label])
+            : String(performerCustomData[attr.label]),
+        }));
+      const res = await authFetch('/api/performers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newPerformer,
-          customFields: JSON.stringify(performerCustomData)
-        })
+        body: JSON.stringify({ ...newPerformer, customFieldValues })
       });
       if (res.ok) {
         fetchData();
@@ -245,7 +270,22 @@ function AppContent() {
       phone: performer.phone || '',
       notes: performer.notes || '',
     });
-    setEditPerformerCustomData(performer.customFields ? JSON.parse(performer.customFields) : {});
+    const customData: Record<string, any> = {};
+    if (performer.customFieldValues) {
+      for (const cfv of performer.customFieldValues) {
+        const attr = customAttributes.find(a => a.id === cfv.customAttributeId);
+        if (attr) {
+          if (attr.type === 'boolean') {
+            customData[attr.label] = cfv.value === 'true';
+          } else if (attr.type === 'multiselect') {
+            try { customData[attr.label] = JSON.parse(cfv.value); } catch { customData[attr.label] = []; }
+          } else {
+            customData[attr.label] = cfv.value;
+          }
+        }
+      }
+    }
+    setEditPerformerCustomData(customData);
     setEditingPerformer(performer);
     setShowPerformerDetails(null);
   };
@@ -254,13 +294,18 @@ function AppContent() {
     e.preventDefault();
     if (!editingPerformer) return;
     try {
-      const res = await fetch(`/api/performers/${editingPerformer.id}`, {
+      const customFieldValues = customAttributes
+        .filter(attr => editPerformerCustomData[attr.label] !== undefined && editPerformerCustomData[attr.label] !== '')
+        .map(attr => ({
+          customAttributeId: attr.id,
+          value: typeof editPerformerCustomData[attr.label] === 'object'
+            ? JSON.stringify(editPerformerCustomData[attr.label])
+            : String(editPerformerCustomData[attr.label]),
+        }));
+      const res = await authFetch(`/api/performers/${editingPerformer.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...editPerformerData,
-          customFields: JSON.stringify(editPerformerCustomData)
-        })
+        body: JSON.stringify({ ...editPerformerData, customFieldValues })
       });
       if (res.ok) {
         fetchData();
@@ -282,7 +327,7 @@ function AppContent() {
   const handleAddAttribute = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/custom-attributes', {
+      const res = await authFetch('/api/custom-attributes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAttr)
@@ -299,10 +344,30 @@ function AppContent() {
   const handleDeleteAttribute = async (id: number) => {
     if (!confirm('Are you sure? This will not delete existing data but will remove the field from future forms.')) return;
     try {
-      const res = await fetch(`/api/custom-attributes/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/custom-attributes/${id}`, { method: 'DELETE' });
       if (res.ok) fetchData();
     } catch (err) {
       console.error('Error deleting attribute:', err);
+    }
+  };
+
+  const handleReorderAttribute = async (id: number, direction: 'up' | 'down') => {
+    const idx = customAttributes.findIndex(a => a.id === id);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= customAttributes.length) return;
+    const reordered = [...customAttributes];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    setCustomAttributes(reordered);
+    try {
+      await authFetch('/api/custom-attributes/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds: reordered.map(a => a.id) })
+      });
+    } catch (err) {
+      console.error('Error reordering attributes:', err);
+      fetchData();
     }
   };
 
@@ -313,7 +378,7 @@ function AppContent() {
 
   const handleBookSlot = async (slotId: number, performerId: number) => {
     try {
-      const res = await fetch(`/api/slots/${slotId}`, {
+      const res = await authFetch(`/api/slots/${slotId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ performerId, status: 'booked' })
@@ -328,7 +393,7 @@ function AppContent() {
 
   const handleCompleteAudition = async (slotId: number, score: number, feedback: string, passedToCallback: boolean) => {
     try {
-      const res = await fetch(`/api/slots/${slotId}`, {
+      const res = await authFetch(`/api/slots/${slotId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ score, feedback, passedToCallback, status: 'completed' })
@@ -338,7 +403,7 @@ function AppContent() {
         if (passedToCallback) {
           const slot = slots.find(s => s.id === slotId);
           if (slot && slot.performerId) {
-            await fetch('/api/callbacks', {
+            await authFetch('/api/callbacks', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -358,8 +423,8 @@ function AppContent() {
   const fetchCallbacksForAudition = async (auditionId: number) => {
     try {
       const [cbRes, slotRes] = await Promise.all([
-        fetch(`/api/auditions/${auditionId}/callbacks`),
-        fetch(`/api/auditions/${auditionId}/slots`)
+        authFetch(`/api/auditions/${auditionId}/callbacks`),
+        authFetch(`/api/auditions/${auditionId}/slots`)
       ]);
       const cbData = await cbRes.json();
       const slotData = await slotRes.json();
@@ -377,7 +442,7 @@ function AppContent() {
 
   const handleUpdateCallback = async (id: number, updates: Partial<Callback>) => {
     try {
-      await fetch(`/api/callbacks/${id}`, {
+      await authFetch(`/api/callbacks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
@@ -391,7 +456,7 @@ function AppContent() {
   const handleDeleteCallback = async (id: number) => {
     if (!confirm('Remove this vocalist from callbacks?')) return;
     try {
-      await fetch(`/api/callbacks/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/callbacks/${id}`, { method: 'DELETE' });
       if (callbackAuditionId) fetchCallbacksForAudition(callbackAuditionId);
     } catch (err) {
       console.error('Error deleting callback:', err);
@@ -400,7 +465,7 @@ function AppContent() {
 
   const handleNotifyCallback = async (id: number) => {
     try {
-      const res = await fetch(`/api/callbacks/${id}/notify`, { method: 'POST' });
+      const res = await authFetch(`/api/callbacks/${id}/notify`, { method: 'POST' });
       const data = await res.json();
       alert(data.message || 'Notification sent');
     } catch (err) {
@@ -600,7 +665,7 @@ function AppContent() {
                                         checked={slot.status !== 'closed'}
                                         onChange={async () => {
                                           const newStatus = slot.status === 'closed' ? 'available' : 'closed';
-                                          await fetch(`/api/slots/${slot.id}`, {
+                                          await authFetch(`/api/slots/${slot.id}`, {
                                             method: 'PATCH',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ status: newStatus })
@@ -1025,11 +1090,29 @@ function AppContent() {
                         No custom attributes defined yet.
                       </div>
                     ) : (
-                      customAttributes.map(attr => (
+                      customAttributes.map((attr, idx) => (
                         <div key={attr.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between">
-                          <div>
-                            <p className="font-bold">{attr.label}</p>
-                            <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type === 'select' ? 'Dropdown (Select One)' : attr.type === 'multiselect' ? 'Dropdown (Select Multiple)' : attr.type} {attr.required ? '• Required' : ''}</p>
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col">
+                              <button
+                                onClick={() => handleReorderAttribute(attr.id, 'up')}
+                                disabled={idx === 0}
+                                className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <ArrowUp size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleReorderAttribute(attr.id, 'down')}
+                                disabled={idx === customAttributes.length - 1}
+                                className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <ArrowDown size={16} />
+                              </button>
+                            </div>
+                            <div>
+                              <p className="font-bold">{attr.label}</p>
+                              <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type === 'select' ? 'Dropdown (Select One)' : attr.type === 'multiselect' ? 'Dropdown (Select Multiple)' : attr.type} {attr.required ? '• Required' : ''}</p>
+                            </div>
                           </div>
                           <button
                             onClick={() => handleDeleteAttribute(attr.id)}
@@ -1147,7 +1230,7 @@ function AppContent() {
                 });
                 start.setMinutes(start.getMinutes() + slotConfig.duration + slotConfig.padding);
               }
-              await Promise.all(slotsToCreate.map(s => fetch('/api/slots', {
+              await Promise.all(slotsToCreate.map(s => authFetch('/api/slots', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(s)
@@ -1466,18 +1549,28 @@ function AppContent() {
                 </div>
               </div>
 
-              {showPerformerDetails.customFields && (
+              {showPerformerDetails.customFieldValues && showPerformerDetails.customFieldValues.length > 0 && (
                 <div className="pt-4 border-t border-[#E5E7EB]">
                   <p className="text-xs font-bold text-[#4F46E5] uppercase tracking-wider mb-3">Vocal Attributes</p>
                   <div className="grid grid-cols-1 gap-3">
-                    {Object.entries(JSON.parse(showPerformerDetails.customFields)).map(([label, value]) => (
-                      <div key={label} className="flex justify-between items-center py-2 border-b border-[#F3F4F6] last:border-0">
-                        <span className="text-sm font-medium text-[#6B7280]">{label}</span>
-                        <span className="text-sm font-bold text-[#111827]">
-                          {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : Array.isArray(value) ? value.join(', ') : String(value)}
-                        </span>
-                      </div>
-                    ))}
+                    {showPerformerDetails.customFieldValues.map(cfv => {
+                      const attr = customAttributes.find(a => a.id === cfv.customAttributeId);
+                      if (!attr) return null;
+                      let displayValue: string;
+                      if (attr.type === 'boolean') {
+                        displayValue = cfv.value === 'true' ? 'Yes' : 'No';
+                      } else if (attr.type === 'multiselect') {
+                        try { displayValue = (JSON.parse(cfv.value) as string[]).join(', '); } catch { displayValue = cfv.value; }
+                      } else {
+                        displayValue = cfv.value;
+                      }
+                      return (
+                        <div key={cfv.id} className="flex justify-between items-center py-2 border-b border-[#F3F4F6] last:border-0">
+                          <span className="text-sm font-medium text-[#6B7280]">{attr.label}</span>
+                          <span className="text-sm font-bold text-[#111827]">{displayValue}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
