@@ -14,7 +14,8 @@ import {
   Trophy,
   Search,
   Loader2,
-  Settings
+  Settings,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -26,11 +27,10 @@ import { LogOut } from 'lucide-react';
 // --- Types ---
 interface Performer {
   id: number;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
-  voiceType: string;
-  experience: string;
   notes: string;
   customFields: string; // JSON string
 }
@@ -100,13 +100,14 @@ function AppContent() {
   const [showGenerateSlots, setShowGenerateSlots] = useState(false);
   const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
   const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '' });
-  const [newPerformer, setNewPerformer] = useState({ name: '', email: '', phone: '', voiceType: '', experience: '', notes: '' });
+  const [newPerformer, setNewPerformer] = useState({ firstName: '', lastName: '', email: '', phone: '', notes: '' });
   const [performerCustomData, setPerformerCustomData] = useState<Record<string, any>>({});
 
   // Settings states
   const [setupTab, setSetupTab] = useState<'general' | 'attributes'>('general');
   const [newAttr, setNewAttr] = useState({ label: '', type: 'text' as any, options: '', required: false });
 
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [showPerformerDetails, setShowPerformerDetails] = useState<Performer | null>(null);
 
   const navigateToLogin = () => {
@@ -213,7 +214,7 @@ function AppContent() {
       if (res.ok) {
         fetchData();
         setShowAddPerformer(false);
-        setNewPerformer({ name: '', email: '', phone: '', voiceType: '', experience: '', notes: '' });
+        setNewPerformer({ firstName: '', lastName: '', email: '', phone: '', notes: '' });
         setPerformerCustomData({});
       }
     } catch (err) {
@@ -460,11 +461,20 @@ function AppContent() {
                         }, {})
                       ) as [string, AuditionSlot[]][]).sort(([a], [b]) => a.localeCompare(b)).map(([date, dateSlots]) => (
                         <div key={date} className="space-y-3">
-                          <h5 className="font-bold text-sm text-[#4F46E5] uppercase tracking-wider flex items-center gap-2 pt-2">
+                          <button
+                            onClick={() => setCollapsedDates(prev => {
+                              const next = new Set(prev);
+                              if (next.has(date)) next.delete(date); else next.add(date);
+                              return next;
+                            })}
+                            className="font-bold text-sm text-[#4F46E5] uppercase tracking-wider flex items-center gap-2 pt-2 hover:opacity-80 transition-opacity"
+                          >
+                            <ChevronDown size={16} className={`transition-transform ${collapsedDates.has(date) ? '-rotate-90' : ''}`} />
                             <Calendar size={16} />
                             {date === 'Unscheduled' ? date : new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                          </h5>
-                          <div className="grid grid-cols-1 gap-3">
+                            <span className="text-xs font-medium text-[#9CA3AF] normal-case tracking-normal">({dateSlots.length} slots)</span>
+                          </button>
+                          {!collapsedDates.has(date) && <div className="grid grid-cols-1 gap-3">
                             {dateSlots.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(slot => (
                               <div key={slot.id} className={`flex items-center justify-between p-4 rounded-2xl border ${slot.status === 'closed' ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60' : 'bg-[#F9FAFB] border-[#F3F4F6]'}`}>
                                 <div className="flex items-center gap-6">
@@ -494,11 +504,10 @@ function AppContent() {
                                   ) : slot.performerId ? (
                                     <div className="flex items-center gap-3">
                                       <div className="w-8 h-8 bg-[#4F46E5] rounded-full flex items-center justify-center text-white text-xs font-bold">
-                                        {performers.find(p => p.id === slot.performerId)?.name.charAt(0)}
+                                        {performers.find(p => p.id === slot.performerId)?.firstName.charAt(0)}
                                       </div>
                                       <div>
-                                        <p className="font-bold text-sm">{performers.find(p => p.id === slot.performerId)?.name}</p>
-                                        <p className="text-xs text-[#6B7280]">{performers.find(p => p.id === slot.performerId)?.voiceType}</p>
+                                        <p className="font-bold text-sm">{performers.find(p => p.id === slot.performerId)?.firstName} {performers.find(p => p.id === slot.performerId)?.lastName}</p>
                                       </div>
                                     </div>
                                   ) : (
@@ -515,7 +524,7 @@ function AppContent() {
                                     >
                                       <option value="" disabled>Assign Vocalist</option>
                                       {performers.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                        <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
                                       ))}
                                     </select>
                                   )}
@@ -552,7 +561,7 @@ function AppContent() {
                                 </div>
                               </div>
                             ))}
-                          </div>
+                          </div>}
                         </div>
                       ))}
                     </div>
@@ -589,9 +598,7 @@ function AppContent() {
                   <thead>
                     <tr className="bg-[#F9FAFB] border-bottom border-[#E5E7EB]">
                       <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Name</th>
-                      <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Voice Type</th>
                       <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Contact</th>
-                      <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Experience</th>
                       <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
@@ -601,24 +608,16 @@ function AppContent() {
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold">
-                              {performer.name.charAt(0)}
+                              {performer.firstName.charAt(0)}
                             </div>
-                            <span className="font-bold text-[#111827]">{performer.name}</span>
+                            <span className="font-bold text-[#111827]">{performer.firstName} {performer.lastName}</span>
                           </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className="px-3 py-1 bg-[#F3F4F6] text-[#4B5563] rounded-full text-xs font-bold">
-                            {performer.voiceType}
-                          </span>
                         </td>
                         <td className="px-6 py-5">
                           <div className="text-sm">
                             <p className="text-[#111827] font-medium">{performer.email}</p>
                             <p className="text-[#6B7280]">{performer.phone}</p>
                           </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <p className="text-sm text-[#6B7280] line-clamp-1">{performer.experience}</p>
                         </td>
                         <td className="px-6 py-5 text-right">
                           <button 
@@ -1039,30 +1038,24 @@ function AppContent() {
             <form onSubmit={handleAddPerformer} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Full Name</label>
-                  <input 
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">First Name</label>
+                  <input
                     required
-                    type="text" 
-                    value={newPerformer.name}
-                    onChange={e => setNewPerformer({...newPerformer, name: e.target.value})}
+                    type="text"
+                    value={newPerformer.firstName}
+                    onChange={e => setNewPerformer({...newPerformer, firstName: e.target.value})}
                     className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Voice Type</label>
-                  <select 
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Last Name</label>
+                  <input
                     required
-                    value={newPerformer.voiceType}
-                    onChange={e => setNewPerformer({...newPerformer, voiceType: e.target.value})}
-                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all bg-white"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Soprano">Soprano</option>
-                    <option value="Alto">Alto</option>
-                    <option value="Tenor">Tenor</option>
-                    <option value="Bass">Bass</option>
-                    <option value="Other">Other</option>
-                  </select>
+                    type="text"
+                    value={newPerformer.lastName}
+                    onChange={e => setNewPerformer({...newPerformer, lastName: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                  />
                 </div>
               </div>
               <div>
@@ -1084,19 +1077,10 @@ function AppContent() {
                   className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-bold text-[#374151] mb-1.5">Experience / Vocal Bio</label>
-                <textarea 
-                  value={newPerformer.experience}
-                  onChange={e => setNewPerformer({...newPerformer, experience: e.target.value})}
-                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all h-20"
-                />
-              </div>
-
               {customAttributes.length > 0 && (
                 <div className="pt-4 border-t border-[#E5E7EB] space-y-4">
                   <h4 className="font-bold text-[#4F46E5] text-sm uppercase tracking-wider">Vocal Attributes</h4>
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="max-h-60 overflow-y-auto pr-2 grid grid-cols-1 gap-4">
                     {customAttributes.map(attr => (
                       <div key={attr.id}>
                         <label className="block text-sm font-bold text-[#374151] mb-1.5">
@@ -1183,11 +1167,10 @@ function AppContent() {
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-[#EEF2FF] text-[#4F46E5] rounded-2xl flex items-center justify-center font-bold text-xl">
-                  {showPerformerDetails.name.charAt(0)}
+                  {showPerformerDetails.firstName.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold">{showPerformerDetails.name}</h3>
-                  <p className="text-[#6B7280]">{showPerformerDetails.voiceType}</p>
+                  <h3 className="text-2xl font-bold">{showPerformerDetails.firstName} {showPerformerDetails.lastName}</h3>
                 </div>
               </div>
               <button 
@@ -1208,13 +1191,6 @@ function AppContent() {
                   <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Phone</p>
                   <p className="font-medium">{showPerformerDetails.phone || 'N/A'}</p>
                 </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Experience</p>
-                <p className="text-sm text-[#374151] bg-[#F9FAFB] p-3 rounded-xl border border-[#F3F4F6]">
-                  {showPerformerDetails.experience || 'No experience listed.'}
-                </p>
               </div>
 
               {showPerformerDetails.customFields && (

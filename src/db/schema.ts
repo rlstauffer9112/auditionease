@@ -2,11 +2,10 @@ import { pgTable, serial, text, integer, boolean, timestamp } from 'drizzle-orm/
 
 export const performers = pgTable('performers', {
   id: serial('id').primaryKey(),
-  name: text('name').notNull(),
+  firstName: text('first_name').notNull(),
+  lastName: text('last_name').notNull(),
   email: text('email').notNull(),
   phone: text('phone'),
-  voiceType: text('voice_type'),
-  experience: text('experience'),
   notes: text('notes'),
   customFields: text('custom_fields'),
   createdAt: timestamp('created_at').defaultNow(),

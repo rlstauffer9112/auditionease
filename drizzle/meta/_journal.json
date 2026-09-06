@@ -15,6 +15,20 @@
       "when": 1788660994763,
       "tag": "0001_zippy_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788661200000,
+      "tag": "0002_split_performer_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788661800000,
+      "tag": "0003_remove_voicetype_experience",
+      "breakpoints": true
     }
   ]
 }
