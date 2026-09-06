@@ -56,9 +56,10 @@ interface AuditionSlot {
   id: number;
   auditionId: number;
   performerId: number | null;
+  date: string;
   startTime: string;
   endTime: string;
-  status: 'available' | 'booked' | 'completed' | 'no-show';
+  status: 'available' | 'booked' | 'completed' | 'no-show' | 'closed';
   score: number | null;
   feedback: string | null;
   passedToCallback: boolean;
@@ -95,6 +96,8 @@ function AppContent() {
   // Form states
   const [showAddAudition, setShowAddAudition] = useState(false);
   const [showAddPerformer, setShowAddPerformer] = useState(false);
+  const [showGenerateSlots, setShowGenerateSlots] = useState(false);
+  const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15 });
   const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '' });
   const [newPerformer, setNewPerformer] = useState({ name: '', email: '', phone: '', voiceType: '', experience: '', notes: '' });
   const [performerCustomData, setPerformerCustomData] = useState<Record<string, any>>({});
@@ -122,6 +125,10 @@ function AppContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  useEffect(() => {
+    if (user) fetchData();
+  }, [user]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0]">
@@ -140,10 +147,6 @@ function AppContent() {
     }
     return <LandingPage onGetStarted={navigateToLogin} />;
   }
-
-  useEffect(() => {
-    fetchData();
-  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -296,12 +299,12 @@ function AppContent() {
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
       {/* Sidebar */}
       <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10">
-        <div className="flex items-center gap-3 px-2">
+        <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('auditions'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
           <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
             <Music size={24} />
           </div>
           <h1 className="text-xl font-bold tracking-tight">AuditionEase</h1>
-        </div>
+        </a>
 
         <nav className="flex flex-col gap-2">
           <button 
@@ -354,13 +357,6 @@ function AppContent() {
             </button>
           </div>
 
-          <div className="p-4 bg-[#F3F4F6] rounded-2xl">
-            <p className="text-xs text-[#6B7280] font-medium uppercase tracking-wider mb-2">System Status</p>
-            <div className="flex items-center gap-2 text-sm font-semibold text-[#10B981]">
-              <div className="w-2 h-2 bg-[#10B981] rounded-full animate-pulse" />
-              Database Connected
-            </div>
-          </div>
         </div>
       </div>
 
@@ -436,28 +432,10 @@ function AppContent() {
                         <p className="text-[#6B7280]">{selectedAudition.description}</p>
                       </div>
                       <div className="flex gap-3">
-                        <button 
+                        <button
                           onClick={() => {
-                            // Logic to generate slots
-                            const startTime = "09:00";
-                            const interval = 15;
-                            const newSlots = Array.from({ length: 10 }).map((_, i) => {
-                              const start = new Date(`2024-01-01T${startTime}`);
-                              start.setMinutes(start.getMinutes() + i * interval);
-                              const end = new Date(start);
-                              end.setMinutes(end.getMinutes() + interval);
-                              return {
-                                auditionId: selectedAudition.id,
-                                startTime: start.toTimeString().slice(0, 5),
-                                endTime: end.toTimeString().slice(0, 5),
-                                status: 'available'
-                              };
-                            });
-                            newSlots.forEach(s => fetch('/api/slots', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify(s)
-                            }).then(() => fetchSlots(selectedAudition.id)));
+                            setSlotConfig({ date: selectedAudition.date, startTime: '09:00', endTime: '17:00', duration: 15 });
+                            setShowGenerateSlots(true);
                           }}
                           className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold hover:bg-[#F3F4F6]"
                         >
@@ -471,75 +449,110 @@ function AppContent() {
                         <Clock size={20} className="text-[#4F46E5]" />
                         Audition Schedule
                       </h4>
-                      <div className="grid grid-cols-1 gap-3">
-                        {slots.map(slot => (
-                          <div key={slot.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-2xl border border-[#F3F4F6]">
-                            <div className="flex items-center gap-6">
-                              <div className="text-sm font-bold bg-white px-3 py-1.5 rounded-lg border border-[#E5E7EB] shadow-sm">
-                                {slot.startTime} - {slot.endTime}
-                              </div>
-                              {slot.performerId ? (
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-[#4F46E5] rounded-full flex items-center justify-center text-white text-xs font-bold">
-                                    {performers.find(p => p.id === slot.performerId)?.name.charAt(0)}
+                      {(Object.entries(
+                        slots.reduce<Record<string, AuditionSlot[]>>((groups, slot) => {
+                          const key = slot.date || 'Unscheduled';
+                          if (!groups[key]) groups[key] = [];
+                          groups[key].push(slot);
+                          return groups;
+                        }, {})
+                      ) as [string, AuditionSlot[]][]).sort(([a], [b]) => a.localeCompare(b)).map(([date, dateSlots]) => (
+                        <div key={date} className="space-y-3">
+                          <h5 className="font-bold text-sm text-[#4F46E5] uppercase tracking-wider flex items-center gap-2 pt-2">
+                            <Calendar size={16} />
+                            {date === 'Unscheduled' ? date : new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          </h5>
+                          <div className="grid grid-cols-1 gap-3">
+                            {dateSlots.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(slot => (
+                              <div key={slot.id} className={`flex items-center justify-between p-4 rounded-2xl border ${slot.status === 'closed' ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60' : 'bg-[#F9FAFB] border-[#F3F4F6]'}`}>
+                                <div className="flex items-center gap-6">
+                                  {!slot.performerId && (
+                                    <label className="flex items-center cursor-pointer" title={slot.status === 'closed' ? 'Re-open slot' : 'Close slot'}>
+                                      <input
+                                        type="checkbox"
+                                        checked={slot.status !== 'closed'}
+                                        onChange={async () => {
+                                          const newStatus = slot.status === 'closed' ? 'available' : 'closed';
+                                          await fetch(`/api/slots/${slot.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: newStatus })
+                                          });
+                                          if (selectedAudition) fetchSlots(selectedAudition.id);
+                                        }}
+                                        className="w-4 h-4 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                                      />
+                                    </label>
+                                  )}
+                                  <div className="text-sm font-bold bg-white px-3 py-1.5 rounded-lg border border-[#E5E7EB] shadow-sm">
+                                    {slot.startTime} - {slot.endTime}
                                   </div>
-                                  <div>
-                                    <p className="font-bold text-sm">{performers.find(p => p.id === slot.performerId)?.name}</p>
-                                    <p className="text-xs text-[#6B7280]">{performers.find(p => p.id === slot.performerId)?.voiceType}</p>
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className="text-[#9CA3AF] text-sm italic">No vocalist assigned</span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                              {slot.status === 'available' && (
-                                <select 
-                                  onChange={(e) => handleBookSlot(slot.id, parseInt(e.target.value))}
-                                  className="text-sm border border-[#E5E7EB] rounded-lg px-3 py-1.5 bg-white font-medium"
-                                  defaultValue=""
-                                >
-                                  <option value="" disabled>Assign Vocalist</option>
-                                  {performers.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                  ))}
-                                </select>
-                              )}
-                              {slot.status === 'booked' && (
-                                <button 
-                                  onClick={() => {
-                                    const score = prompt("Enter score (1-10):");
-                                    const feedback = prompt("Enter feedback:");
-                                    const pass = confirm("Pass to callback?");
-                                    if (score) handleCompleteAudition(slot.id, parseInt(score), feedback || '', pass);
-                                  }}
-                                  className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
-                                >
-                                  Evaluate
-                                </button>
-                              )}
-                              {slot.status === 'completed' && (
-                                <div className="flex items-center gap-4">
-                                  <div className="flex items-center gap-1 text-[#4F46E5] font-bold">
-                                    <Trophy size={16} />
-                                    {slot.score}/10
-                                  </div>
-                                  {slot.passedToCallback ? (
-                                    <span className="flex items-center gap-1 text-[#10B981] text-xs font-bold bg-[#ECFDF5] px-2 py-1 rounded-md">
-                                      <CheckCircle2 size={14} /> CALLBACK
-                                    </span>
+                                  {slot.status === 'closed' ? (
+                                    <span className="text-[#9CA3AF] text-sm italic">Closed</span>
+                                  ) : slot.performerId ? (
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-8 h-8 bg-[#4F46E5] rounded-full flex items-center justify-center text-white text-xs font-bold">
+                                        {performers.find(p => p.id === slot.performerId)?.name.charAt(0)}
+                                      </div>
+                                      <div>
+                                        <p className="font-bold text-sm">{performers.find(p => p.id === slot.performerId)?.name}</p>
+                                        <p className="text-xs text-[#6B7280]">{performers.find(p => p.id === slot.performerId)?.voiceType}</p>
+                                      </div>
+                                    </div>
                                   ) : (
-                                    <span className="flex items-center gap-1 text-[#EF4444] text-xs font-bold bg-[#FEF2F2] px-2 py-1 rounded-md">
-                                      <XCircle size={14} /> REJECTED
-                                    </span>
+                                    <span className="text-[#9CA3AF] text-sm italic">No vocalist assigned</span>
                                   )}
                                 </div>
-                              )}
-                            </div>
+
+                                <div className="flex items-center gap-3">
+                                  {slot.status === 'available' && (
+                                    <select
+                                      onChange={(e) => handleBookSlot(slot.id, parseInt(e.target.value))}
+                                      className="text-sm border border-[#E5E7EB] rounded-lg px-3 py-1.5 bg-white font-medium"
+                                      defaultValue=""
+                                    >
+                                      <option value="" disabled>Assign Vocalist</option>
+                                      {performers.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  {slot.status === 'booked' && (
+                                    <button
+                                      onClick={() => {
+                                        const score = prompt("Enter score (1-10):");
+                                        const feedback = prompt("Enter feedback:");
+                                        const pass = confirm("Pass to callback?");
+                                        if (score) handleCompleteAudition(slot.id, parseInt(score), feedback || '', pass);
+                                      }}
+                                      className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
+                                    >
+                                      Evaluate
+                                    </button>
+                                  )}
+                                  {slot.status === 'completed' && (
+                                    <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-1 text-[#4F46E5] font-bold">
+                                        <Trophy size={16} />
+                                        {slot.score}/10
+                                      </div>
+                                      {slot.passedToCallback ? (
+                                        <span className="flex items-center gap-1 text-[#10B981] text-xs font-bold bg-[#ECFDF5] px-2 py-1 rounded-md">
+                                          <CheckCircle2 size={14} /> CALLBACK
+                                        </span>
+                                      ) : (
+                                        <span className="flex items-center gap-1 text-[#EF4444] text-xs font-bold bg-[#FEF2F2] px-2 py-1 rounded-md">
+                                          <XCircle size={14} /> REJECTED
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -788,7 +801,7 @@ function AppContent() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Date</label>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Start Date</label>
                   <input 
                     required
                     type="date" 
@@ -822,6 +835,108 @@ function AppContent() {
                   className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
                 >
                   Create Audition
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {showGenerateSlots && selectedAudition && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
+          >
+            <h3 className="text-2xl font-bold mb-6">Generate Time Slots</h3>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const start = new Date(`2000-01-01T${slotConfig.startTime}`);
+              const end = new Date(`2000-01-01T${slotConfig.endTime}`);
+              const slotsToCreate: { auditionId: number; date: string; startTime: string; endTime: string; status: string }[] = [];
+              while (start < end) {
+                const slotEnd = new Date(start);
+                slotEnd.setMinutes(slotEnd.getMinutes() + slotConfig.duration);
+                if (slotEnd > end) break;
+                slotsToCreate.push({
+                  auditionId: selectedAudition.id,
+                  date: slotConfig.date,
+                  startTime: start.toTimeString().slice(0, 5),
+                  endTime: slotEnd.toTimeString().slice(0, 5),
+                  status: 'available'
+                });
+                start.setMinutes(start.getMinutes() + slotConfig.duration);
+              }
+              await Promise.all(slotsToCreate.map(s => fetch('/api/slots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(s)
+              })));
+              fetchSlots(selectedAudition.id);
+              setShowGenerateSlots(false);
+            }} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Date</label>
+                <input
+                  required
+                  type="date"
+                  value={slotConfig.date}
+                  onChange={e => setSlotConfig({...slotConfig, date: e.target.value})}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Start Time</label>
+                  <input
+                    required
+                    type="time"
+                    value={slotConfig.startTime}
+                    onChange={e => setSlotConfig({...slotConfig, startTime: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">End Time</label>
+                  <input
+                    required
+                    type="time"
+                    value={slotConfig.endTime}
+                    onChange={e => setSlotConfig({...slotConfig, endTime: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Slot Duration (minutes)</label>
+                <select
+                  value={slotConfig.duration}
+                  onChange={e => setSlotConfig({...slotConfig, duration: parseInt(e.target.value)})}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                >
+                  <option value={5}>5 minutes</option>
+                  <option value={10}>10 minutes</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={20}>20 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={45}>45 minutes</option>
+                  <option value={60}>60 minutes</option>
+                </select>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowGenerateSlots(false)}
+                  className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
+                >
+                  Generate Slots
                 </button>
               </div>
             </form>

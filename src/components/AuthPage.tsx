@@ -25,9 +25,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     try {
       if (isRegistering) {
         await register(firstName, lastName, email);
-        setIsRegistering(false);
         setSuccess(true);
-        setTimeout(() => setSuccess(false), 5000);
       } else {
         await login(email);
         setSuccess(true);
@@ -39,7 +37,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     }
   };
 
-  if (success && !isRegistering) {
+  if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4">
         <motion.div 

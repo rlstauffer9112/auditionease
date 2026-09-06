@@ -157,7 +157,7 @@ async function startServer() {
   app.post('/api/auth/login-request', async (req, res) => {
     try {
       const { email } = req.body;
-      const user = await db.select().from(users).where(eq(users.email, email)).get();
+      const user = await db.select().from(users).where(eq(users.email, email)).then(rows => rows[0]);
 
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -174,15 +174,22 @@ async function startServer() {
 
       const loginLink = `${APP_URL}/verify?token=${token}`;
 
-      if (process.env.BREVO_API_KEY) {
-        await client.transactionalEmails.sendTransacEmail({
-          subject: "Login to AuditionEase",
-          htmlContent: `<p>Click the link below to login to your AuditionEase account:</p><p><a href="${loginLink}">${loginLink}</a></p><p>This link expires in 15 minutes.</p>`,
-          sender: { "name": "AuditionEase", "email": "noreply@auditionease.com" },
-          to: [{ "email": email }],
-        });
-      } else {
-        console.log('--- LOGIN LINK (No Brevo API Key) ---');
+      try {
+        if (process.env.BREVO_API_KEY) {
+          await client.transactionalEmails.sendTransacEmail({
+            subject: "Login to AuditionEase",
+            htmlContent: `<p>Click the link below to login to your AuditionEase account:</p><p><a href="${loginLink}">${loginLink}</a></p><p>This link expires in 15 minutes.</p>`,
+            sender: { "name": "AuditionEase", "email": "noreply@auditionease.com" },
+            to: [{ "email": email }],
+          });
+        } else {
+          console.log('--- LOGIN LINK (No Brevo API Key) ---');
+          console.log(loginLink);
+          console.log('-----------------------------------------');
+        }
+      } catch (emailErr) {
+        console.error('Email send failed, printing link to console:', emailErr);
+        console.log('--- LOGIN LINK (Email failed) ---');
         console.log(loginLink);
         console.log('-----------------------------------------');
       }
@@ -203,7 +210,7 @@ async function startServer() {
           eq(loginTokens.used, false),
           gt(loginTokens.expiresAt, new Date())
         ))
-        .get();
+        .then(rows => rows[0]);
 
       if (!loginToken) {
         return res.status(400).json({ error: 'Invalid or expired token' });
@@ -214,13 +221,13 @@ async function startServer() {
         .set({ used: true })
         .where(eq(loginTokens.id, loginToken.id));
 
-      const user = await db.select().from(users).where(eq(users.id, loginToken.userId)).get();
+      const user = await db.select().from(users).where(eq(users.id, loginToken.userId)).then(rows => rows[0]);
       
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      const sessionToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+      const sessionToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '90d' });
 
       res.json({ user, sessionToken });
     } catch (err) {
@@ -236,7 +243,7 @@ async function startServer() {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
       
-      const user = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
+      const user = await db.select().from(users).where(eq(users.id, decoded.userId)).then(rows => rows[0]);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       res.json(user);

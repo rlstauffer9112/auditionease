@@ -65,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const error = await res.json();
       throw new Error(error.error || 'Failed to register');
     }
+    await login(email);
   };
 
   const verifyToken = async (token: string) => {

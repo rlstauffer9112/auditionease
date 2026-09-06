@@ -9,18 +9,21 @@ export const VerifyPage: React.FC = () => {
   const { verifyToken } = useAuth();
 
   useEffect(() => {
+    let cancelled = false;
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
 
     if (token) {
       verifyToken(token)
         .then(() => {
+          if (cancelled) return;
           setStatus('success');
           setTimeout(() => {
             window.location.href = '/';
           }, 2000);
         })
         .catch((err: any) => {
+          if (cancelled) return;
           setStatus('error');
           setError(err.message);
         });
@@ -28,7 +31,9 @@ export const VerifyPage: React.FC = () => {
       setStatus('error');
       setError('No token provided');
     }
-  }, [verifyToken]);
+
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0] p-4">

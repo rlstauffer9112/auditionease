@@ -1,0 +1,8 @@
+aws_region   = "us-east-1"
+db_name      = "auditionease"
+db_username  = "auditionease_admin"
+db_password  = "CHANGE_ME_to_a_strong_password"
+my_ipv4      = "YOUR_IPV4/32"
+my_ipv6      = "YOUR_IPV6/128"
+domain_name  = "auditionease.com"
+db_subdomain = "db"
