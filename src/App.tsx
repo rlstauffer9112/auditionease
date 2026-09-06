@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Calendar, 
-  ClipboardList, 
-  Plus, 
-  UserPlus, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  Users,
+  Calendar,
+  ClipboardList,
+  Plus,
+  UserPlus,
+  Clock,
+  CheckCircle2,
+  XCircle,
   ChevronRight,
   Music,
   Mic2,
   Trophy,
   Search,
-  Loader2
+  Loader2,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -97,12 +98,13 @@ function AppContent() {
   const [showAddAudition, setShowAddAudition] = useState(false);
   const [showAddPerformer, setShowAddPerformer] = useState(false);
   const [showGenerateSlots, setShowGenerateSlots] = useState(false);
-  const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15 });
+  const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
   const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '' });
   const [newPerformer, setNewPerformer] = useState({ name: '', email: '', phone: '', voiceType: '', experience: '', notes: '' });
   const [performerCustomData, setPerformerCustomData] = useState<Record<string, any>>({});
 
   // Settings states
+  const [setupTab, setSetupTab] = useState<'general' | 'attributes'>('general');
   const [newAttr, setNewAttr] = useState({ label: '', type: 'text' as any, options: '', required: false });
 
   const [showPerformerDetails, setShowPerformerDetails] = useState<Performer | null>(null);
@@ -434,7 +436,7 @@ function AppContent() {
                       <div className="flex gap-3">
                         <button
                           onClick={() => {
-                            setSlotConfig({ date: selectedAudition.date, startTime: '09:00', endTime: '17:00', duration: 15 });
+                            setSlotConfig({ date: selectedAudition.date, startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
                             setShowGenerateSlots(true);
                           }}
                           className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold hover:bg-[#F3F4F6]"
@@ -667,103 +669,132 @@ function AppContent() {
           )}
 
           {activeTab === 'settings' && (
-            <motion.div 
+            <motion.div
               key="settings"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className="max-w-5xl mx-auto"
             >
-              <div className="mb-10">
-                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Vocal Attributes Setup</h2>
-                <p className="text-[#6B7280]">Define what information you want to collect from vocalists.</p>
+              <div className="mb-8">
+                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Setup</h2>
+                <p className="text-[#6B7280]">Configure your AuditionEase account settings.</p>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-1">
-                  <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
-                    <h3 className="text-lg font-bold mb-4">Add New Attribute</h3>
-                    <form onSubmit={handleAddAttribute} className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Label</label>
-                        <input 
-                          required
-                          type="text" 
-                          value={newAttr.label}
-                          onChange={e => setNewAttr({...newAttr, label: e.target.value})}
-                          className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm"
-                          placeholder="e.g. Dietary Restrictions"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Type</label>
-                        <select 
-                          value={newAttr.type}
-                          onChange={e => setNewAttr({...newAttr, type: e.target.value as any})}
-                          className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white"
-                        >
-                          <option value="text">Text</option>
-                          <option value="number">Number</option>
-                          <option value="date">Date</option>
-                          <option value="boolean">Yes/No</option>
-                          <option value="select">Dropdown</option>
-                        </select>
-                      </div>
-                      {newAttr.type === 'select' && (
-                        <div>
-                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Options (comma separated)</label>
-                          <input 
-                            type="text" 
-                            value={newAttr.options}
-                            onChange={e => setNewAttr({...newAttr, options: e.target.value})}
-                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm"
-                            placeholder="Option 1, Option 2"
-                          />
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="checkbox" 
-                          id="required"
-                          checked={newAttr.required}
-                          onChange={e => setNewAttr({...newAttr, required: e.target.checked})}
-                        />
-                        <label htmlFor="required" className="text-sm font-medium">Required field</label>
-                      </div>
-                      <button 
-                        type="submit"
-                        className="w-full bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors"
-                      >
-                        Add Attribute
-                      </button>
-                    </form>
+              <div className="flex gap-1 mb-8 bg-[#F3F4F6] p-1 rounded-xl w-fit">
+                <button
+                  onClick={() => setSetupTab('general')}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'general' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                >
+                  <Settings size={16} />
+                  General
+                </button>
+                <button
+                  onClick={() => setSetupTab('attributes')}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                >
+                  <ClipboardList size={16} />
+                  Vocalist Attributes
+                </button>
+              </div>
+
+              {setupTab === 'general' && (
+                <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
+                  <div className="text-center py-12 text-[#6B7280]">
+                    <Settings size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
+                    <h3 className="text-lg font-bold text-[#374151] mb-2">General Settings</h3>
+                    <p className="text-sm">Account-level settings will appear here.</p>
                   </div>
                 </div>
+              )}
 
-                <div className="lg:col-span-2 space-y-4">
-                  <h3 className="text-lg font-bold">Current Attributes</h3>
-                  {customAttributes.length === 0 ? (
-                    <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center text-[#6B7280]">
-                      No custom attributes defined yet.
-                    </div>
-                  ) : (
-                    customAttributes.map(attr => (
-                      <div key={attr.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between">
+              {setupTab === 'attributes' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-1">
+                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
+                      <h3 className="text-lg font-bold mb-4">Add New Attribute</h3>
+                      <form onSubmit={handleAddAttribute} className="space-y-4">
                         <div>
-                          <p className="font-bold">{attr.label}</p>
-                          <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type} {attr.required ? '• Required' : ''}</p>
+                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Label</label>
+                          <input
+                            required
+                            type="text"
+                            value={newAttr.label}
+                            onChange={e => setNewAttr({...newAttr, label: e.target.value})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm"
+                            placeholder="e.g. Dietary Restrictions"
+                          />
                         </div>
-                        <button 
-                          onClick={() => handleDeleteAttribute(attr.id)}
-                          className="p-2 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                        <div>
+                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Type</label>
+                          <select
+                            value={newAttr.type}
+                            onChange={e => setNewAttr({...newAttr, type: e.target.value as any})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white"
+                          >
+                            <option value="text">Text</option>
+                            <option value="number">Number</option>
+                            <option value="date">Date</option>
+                            <option value="boolean">Yes/No</option>
+                            <option value="select">Dropdown</option>
+                          </select>
+                        </div>
+                        {newAttr.type === 'select' && (
+                          <div>
+                            <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Options (comma separated)</label>
+                            <input
+                              type="text"
+                              value={newAttr.options}
+                              onChange={e => setNewAttr({...newAttr, options: e.target.value})}
+                              className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm"
+                              placeholder="Option 1, Option 2"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="required"
+                            checked={newAttr.required}
+                            onChange={e => setNewAttr({...newAttr, required: e.target.checked})}
+                          />
+                          <label htmlFor="required" className="text-sm font-medium">Required field</label>
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors"
                         >
-                          <XCircle size={20} />
+                          Add Attribute
                         </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-lg font-bold">Current Attributes</h3>
+                    {customAttributes.length === 0 ? (
+                      <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center text-[#6B7280]">
+                        No custom attributes defined yet.
                       </div>
-                    ))
-                  )}
+                    ) : (
+                      customAttributes.map(attr => (
+                        <div key={attr.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between">
+                          <div>
+                            <p className="font-bold">{attr.label}</p>
+                            <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type} {attr.required ? '• Required' : ''}</p>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteAttribute(attr.id)}
+                            className="p-2 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                          >
+                            <XCircle size={20} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -866,7 +897,7 @@ function AppContent() {
                   endTime: slotEnd.toTimeString().slice(0, 5),
                   status: 'available'
                 });
-                start.setMinutes(start.getMinutes() + slotConfig.duration);
+                start.setMinutes(start.getMinutes() + slotConfig.duration + slotConfig.padding);
               }
               await Promise.all(slotsToCreate.map(s => fetch('/api/slots', {
                 method: 'POST',
@@ -911,8 +942,14 @@ function AppContent() {
               <div>
                 <label className="block text-sm font-bold text-[#374151] mb-1.5">Slot Duration (minutes)</label>
                 <select
-                  value={slotConfig.duration}
-                  onChange={e => setSlotConfig({...slotConfig, duration: parseInt(e.target.value)})}
+                  value={[5, 10, 15, 20, 30, 45, 60].includes(slotConfig.duration) ? slotConfig.duration : 'custom'}
+                  onChange={e => {
+                    if (e.target.value === 'custom') {
+                      setSlotConfig({...slotConfig, duration: 1});
+                    } else {
+                      setSlotConfig({...slotConfig, duration: parseInt(e.target.value)});
+                    }
+                  }}
                   className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                 >
                   <option value={5}>5 minutes</option>
@@ -922,7 +959,54 @@ function AppContent() {
                   <option value={30}>30 minutes</option>
                   <option value={45}>45 minutes</option>
                   <option value={60}>60 minutes</option>
+                  <option value="custom">Custom...</option>
                 </select>
+                {![5, 10, 15, 20, 30, 45, 60].includes(slotConfig.duration) && (
+                  <input
+                    required
+                    type="number"
+                    min={1}
+                    max={480}
+                    value={slotConfig.duration}
+                    onChange={e => setSlotConfig({...slotConfig, duration: parseInt(e.target.value) || 1})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 mt-2 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                    placeholder="Enter minutes"
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Padding Between Slots (minutes)</label>
+                <select
+                  value={[0, 5, 10, 15, 20, 30].includes(slotConfig.padding) ? slotConfig.padding : 'custom'}
+                  onChange={e => {
+                    if (e.target.value === 'custom') {
+                      setSlotConfig({...slotConfig, padding: 1});
+                    } else {
+                      setSlotConfig({...slotConfig, padding: parseInt(e.target.value)});
+                    }
+                  }}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                >
+                  <option value={0}>No padding</option>
+                  <option value={5}>5 minutes</option>
+                  <option value={10}>10 minutes</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={20}>20 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value="custom">Custom...</option>
+                </select>
+                {![0, 5, 10, 15, 20, 30].includes(slotConfig.padding) && (
+                  <input
+                    required
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={slotConfig.padding}
+                    onChange={e => setSlotConfig({...slotConfig, padding: parseInt(e.target.value) || 1})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 mt-2 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                    placeholder="Enter minutes"
+                  />
+                )}
               </div>
               <div className="flex gap-3 pt-4">
                 <button

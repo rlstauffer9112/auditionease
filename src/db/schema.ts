@@ -69,3 +69,10 @@ export const loginTokens = pgTable('login_tokens', {
   used: boolean('used').default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+export const userSettings = pgTable('user_settings', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+});

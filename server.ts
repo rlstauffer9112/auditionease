@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { performers, auditions, auditionSlots, callbacks, customAttributes, users, loginTokens } from './src/db/schema';
+import { performers, auditions, auditionSlots, callbacks, customAttributes, users, loginTokens, userSettings } from './src/db/schema';
 import { eq, and, asc, gt } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
@@ -21,7 +21,84 @@ async function startServer() {
   app.use(express.json());
   app.use(cors());
 
+  // --- Auth Helper ---
+  const getUserIdFromRequest = (req: express.Request): number | null => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return null;
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+      return decoded.userId;
+    } catch {
+      return null;
+    }
+  };
+
   // --- API Routes ---
+
+  // User Settings
+  app.get('/api/user-settings', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const settings = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+      res.json(settings);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch user settings' });
+    }
+  });
+
+  app.get('/api/user-settings/:key', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const setting = await db.select().from(userSettings)
+        .where(and(eq(userSettings.userId, userId), eq(userSettings.key, req.params.key)))
+        .then(rows => rows[0]);
+      if (!setting) return res.status(404).json({ error: 'Setting not found' });
+      res.json(setting);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch setting' });
+    }
+  });
+
+  app.put('/api/user-settings/:key', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const { value } = req.body;
+      const existing = await db.select().from(userSettings)
+        .where(and(eq(userSettings.userId, userId), eq(userSettings.key, req.params.key)))
+        .then(rows => rows[0]);
+
+      if (existing) {
+        const updated = await db.update(userSettings)
+          .set({ value })
+          .where(eq(userSettings.id, existing.id))
+          .returning();
+        res.json(updated[0]);
+      } else {
+        const created = await db.insert(userSettings)
+          .values({ userId, key: req.params.key, value })
+          .returning();
+        res.json(created[0]);
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save setting' });
+    }
+  });
+
+  app.delete('/api/user-settings/:key', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      await db.delete(userSettings)
+        .where(and(eq(userSettings.userId, userId), eq(userSettings.key, req.params.key)));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete setting' });
+    }
+  });
 
   // Custom Attributes
   app.get('/api/custom-attributes', async (req, res) => {
@@ -104,6 +181,7 @@ async function startServer() {
       const newSlot = await db.insert(auditionSlots).values(req.body).returning();
       res.json(newSlot[0]);
     } catch (err) {
+      console.error('Failed to create slot:', err);
       res.status(500).json({ error: 'Failed to create slot' });
     }
   });
