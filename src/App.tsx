@@ -15,7 +15,11 @@ import {
   Search,
   Loader2,
   Settings,
-  ChevronDown
+  ChevronDown,
+  Pencil,
+  Mail,
+  Trash2,
+  Undo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -109,6 +113,17 @@ function AppContent() {
 
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [showPerformerDetails, setShowPerformerDetails] = useState<Performer | null>(null);
+  const [performerSearch, setPerformerSearch] = useState('');
+  const [editingPerformer, setEditingPerformer] = useState<Performer | null>(null);
+  const [editPerformerData, setEditPerformerData] = useState({ firstName: '', lastName: '', email: '', phone: '', notes: '' });
+  const [editPerformerCustomData, setEditPerformerCustomData] = useState<Record<string, any>>({});
+
+  // Callback states
+  const [callbacksData, setCallbacksData] = useState<Callback[]>([]);
+  const [callbackAuditionId, setCallbackAuditionId] = useState<number | null>(null);
+  const [callbackSlots, setCallbackSlots] = useState<AuditionSlot[]>([]);
+  const [showScheduleCallback, setShowScheduleCallback] = useState<Callback | null>(null);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
 
   const navigateToLogin = () => {
     window.history.pushState({}, '', '/login');
@@ -222,6 +237,48 @@ function AppContent() {
     }
   };
 
+  const startEditPerformer = (performer: Performer) => {
+    setEditPerformerData({
+      firstName: performer.firstName,
+      lastName: performer.lastName,
+      email: performer.email,
+      phone: performer.phone || '',
+      notes: performer.notes || '',
+    });
+    setEditPerformerCustomData(performer.customFields ? JSON.parse(performer.customFields) : {});
+    setEditingPerformer(performer);
+    setShowPerformerDetails(null);
+  };
+
+  const handleEditPerformer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPerformer) return;
+    try {
+      const res = await fetch(`/api/performers/${editingPerformer.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editPerformerData,
+          customFields: JSON.stringify(editPerformerCustomData)
+        })
+      });
+      if (res.ok) {
+        fetchData();
+        setEditingPerformer(null);
+      }
+    } catch (err) {
+      console.error('Error updating performer:', err);
+    }
+  };
+
+  const filteredPerformers = performers.filter(p => {
+    if (!performerSearch.trim()) return true;
+    const q = performerSearch.trim().toLowerCase();
+    return p.firstName.toLowerCase().startsWith(q) ||
+           p.lastName.toLowerCase().startsWith(q) ||
+           p.email.toLowerCase().startsWith(q);
+  });
+
   const handleAddAttribute = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -296,6 +353,64 @@ function AppContent() {
     } catch (err) {
       console.error('Error completing audition:', err);
     }
+  };
+
+  const fetchCallbacksForAudition = async (auditionId: number) => {
+    try {
+      const [cbRes, slotRes] = await Promise.all([
+        fetch(`/api/auditions/${auditionId}/callbacks`),
+        fetch(`/api/auditions/${auditionId}/slots`)
+      ]);
+      const cbData = await cbRes.json();
+      const slotData = await slotRes.json();
+      setCallbacksData(cbData);
+      setCallbackSlots(slotData);
+    } catch (err) {
+      console.error('Error fetching callbacks:', err);
+    }
+  };
+
+  const handleSelectCallbackAudition = (auditionId: number) => {
+    setCallbackAuditionId(auditionId);
+    fetchCallbacksForAudition(auditionId);
+  };
+
+  const handleUpdateCallback = async (id: number, updates: Partial<Callback>) => {
+    try {
+      await fetch(`/api/callbacks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (callbackAuditionId) fetchCallbacksForAudition(callbackAuditionId);
+    } catch (err) {
+      console.error('Error updating callback:', err);
+    }
+  };
+
+  const handleDeleteCallback = async (id: number) => {
+    if (!confirm('Remove this vocalist from callbacks?')) return;
+    try {
+      await fetch(`/api/callbacks/${id}`, { method: 'DELETE' });
+      if (callbackAuditionId) fetchCallbacksForAudition(callbackAuditionId);
+    } catch (err) {
+      console.error('Error deleting callback:', err);
+    }
+  };
+
+  const handleNotifyCallback = async (id: number) => {
+    try {
+      const res = await fetch(`/api/callbacks/${id}/notify`, { method: 'POST' });
+      const data = await res.json();
+      alert(data.message || 'Notification sent');
+    } catch (err) {
+      console.error('Error sending notification:', err);
+    }
+  };
+
+  const getScoreForCallback = (cb: Callback): number | null => {
+    const slot = callbackSlots.find(s => s.performerId === cb.performerId && s.status === 'completed');
+    return slot?.score ?? null;
   };
 
   return (
@@ -593,6 +708,17 @@ function AppContent() {
                 </button>
               </div>
 
+              <div className="relative mb-6">
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+                <input
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={performerSearch}
+                  onChange={e => setPerformerSearch(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all bg-white"
+                />
+              </div>
+
               <div className="bg-white rounded-3xl border border-[#E5E7EB] overflow-hidden shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -603,7 +729,7 @@ function AppContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#F3F4F6]">
-                    {performers.map(performer => (
+                    {filteredPerformers.map(performer => (
                       <tr key={performer.id} className="hover:bg-[#F9FAFB] transition-colors group">
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
@@ -636,34 +762,156 @@ function AppContent() {
           )}
 
           {activeTab === 'callbacks' && (
-            <motion.div 
+            <motion.div
               key="callbacks"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 1.05 }}
               className="max-w-5xl mx-auto"
             >
-              <div className="mb-10">
-                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Section Placement</h2>
-                <p className="text-[#6B7280]">Final decisions for singers who passed the initial round.</p>
+              <div className="flex justify-between items-start mb-10">
+                <div>
+                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Section Placement</h2>
+                  <p className="text-[#6B7280]">Final decisions for singers who passed the initial round.</p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {['pending', 'accepted', 'rejected'].map(status => (
-                  <div key={status} className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between px-2">
-                      <h3 className="font-bold uppercase tracking-widest text-xs text-[#6B7280]">{status}</h3>
-                      <span className="bg-[#E5E7EB] text-[#4B5563] px-2 py-0.5 rounded-md text-[10px] font-bold">0</span>
-                    </div>
-                    <div className="bg-[#F3F4F6] p-4 rounded-3xl min-h-[400px] border-2 border-dashed border-[#E5E7EB]">
-                      <div className="flex flex-col items-center justify-center h-full text-[#9CA3AF] gap-2">
-                        <Search size={32} strokeWidth={1.5} />
-                        <p className="text-sm font-medium">No vocalists yet</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="mb-8">
+                <label className="block text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">Select Audition</label>
+                <select
+                  value={callbackAuditionId ?? ''}
+                  onChange={e => {
+                    const id = parseInt(e.target.value);
+                    if (id) handleSelectCallbackAudition(id);
+                  }}
+                  className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white font-medium focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                >
+                  <option value="" disabled>Choose an audition...</option>
+                  {auditions.map(a => (
+                    <option key={a.id} value={a.id}>{a.title} — {a.date}</option>
+                  ))}
+                </select>
               </div>
+
+              {!callbackAuditionId ? (
+                <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center">
+                  <Trophy size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
+                  <h3 className="text-lg font-bold text-[#374151] mb-2">Select an Audition</h3>
+                  <p className="text-sm text-[#6B7280]">Choose an audition above to view and manage its callbacks.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {(['pending', 'accepted', 'rejected'] as const).map(status => {
+                    const statusCallbacks = callbacksData.filter(cb => cb.finalDecision === status);
+                    const statusConfig = {
+                      pending: { color: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
+                      accepted: { color: 'text-[#10B981]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
+                      rejected: { color: 'text-[#EF4444]', bg: 'bg-[#FEF2F2]', border: 'border-[#FECACA]' },
+                    }[status];
+                    return (
+                      <div key={status} className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between px-2">
+                          <h3 className={`font-bold uppercase tracking-widest text-xs ${statusConfig.color}`}>{status}</h3>
+                          <span className={`${statusConfig.bg} ${statusConfig.color} px-2 py-0.5 rounded-md text-[10px] font-bold`}>
+                            {statusCallbacks.length}
+                          </span>
+                        </div>
+                        <div className={`${statusConfig.bg} p-4 rounded-3xl min-h-[400px] border-2 border-dashed ${statusConfig.border} space-y-3`}>
+                          {statusCallbacks.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-[#9CA3AF] gap-2 min-h-[350px]">
+                              <Search size={32} strokeWidth={1.5} />
+                              <p className="text-sm font-medium">No vocalists</p>
+                            </div>
+                          ) : (
+                            statusCallbacks.map(cb => {
+                              const performer = performers.find(p => p.id === cb.performerId);
+                              const score = getScoreForCallback(cb);
+                              return (
+                                <div key={cb.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] shadow-sm space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold text-sm">
+                                      {performer?.firstName?.charAt(0) || '?'}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-bold text-sm truncate">{performer?.firstName} {performer?.lastName}</p>
+                                      <p className="text-xs text-[#6B7280] truncate">{performer?.email}</p>
+                                    </div>
+                                    {score !== null && (
+                                      <div className="flex items-center gap-1 text-[#4F46E5] font-bold text-sm">
+                                        <Trophy size={14} />
+                                        {score}/10
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {cb.notes && (
+                                    <p className="text-xs text-[#6B7280] line-clamp-2 italic">"{cb.notes}"</p>
+                                  )}
+
+                                  {cb.scheduledTime && (
+                                    <div className="flex items-center gap-1.5 text-xs font-medium text-[#4F46E5] bg-[#EEF2FF] px-2.5 py-1.5 rounded-lg">
+                                      <Calendar size={12} />
+                                      {cb.scheduledTime}
+                                    </div>
+                                  )}
+
+                                  <div className="flex flex-wrap gap-1.5 pt-1">
+                                    {status === 'pending' && (
+                                      <>
+                                        <button
+                                          onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'accepted' })}
+                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ECFDF5] text-[#10B981] rounded-lg text-xs font-bold hover:bg-[#D1FAE5] transition-colors"
+                                        >
+                                          <CheckCircle2 size={12} /> Accept
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'rejected' })}
+                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-[#FEF2F2] text-[#EF4444] rounded-lg text-xs font-bold hover:bg-[#FECACA] transition-colors"
+                                        >
+                                          <XCircle size={12} /> Reject
+                                        </button>
+                                      </>
+                                    )}
+                                    {status !== 'pending' && (
+                                      <button
+                                        onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'pending' })}
+                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-[#F3F4F6] text-[#6B7280] rounded-lg text-xs font-bold hover:bg-[#E5E7EB] transition-colors"
+                                      >
+                                        <Undo2 size={12} /> Undo
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        setShowScheduleCallback(cb);
+                                        setScheduleDateTime(cb.scheduledTime || '');
+                                      }}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-[#F3F4F6] text-[#6B7280] rounded-lg text-xs font-bold hover:bg-[#E5E7EB] transition-colors"
+                                    >
+                                      <Clock size={12} /> Schedule
+                                    </button>
+                                    <button
+                                      onClick={() => handleNotifyCallback(cb.id)}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-[#EEF2FF] text-[#4F46E5] rounded-lg text-xs font-bold hover:bg-[#E0E7FF] transition-colors"
+                                    >
+                                      <Mail size={12} /> Notify
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteCallback(cb.id)}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 text-[#9CA3AF] rounded-lg text-xs font-bold hover:bg-[#FEF2F2] hover:text-[#EF4444] transition-colors"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -735,10 +983,11 @@ function AppContent() {
                             <option value="number">Number</option>
                             <option value="date">Date</option>
                             <option value="boolean">Yes/No</option>
-                            <option value="select">Dropdown</option>
+                            <option value="select">Dropdown (Select One)</option>
+                            <option value="multiselect">Dropdown (Select Multiple)</option>
                           </select>
                         </div>
-                        {newAttr.type === 'select' && (
+                        {(newAttr.type === 'select' || newAttr.type === 'multiselect') && (
                           <div>
                             <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Options (comma separated)</label>
                             <input
@@ -780,7 +1029,7 @@ function AppContent() {
                         <div key={attr.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between">
                           <div>
                             <p className="font-bold">{attr.label}</p>
-                            <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type} {attr.required ? '• Required' : ''}</p>
+                            <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type === 'select' ? 'Dropdown (Select One)' : attr.type === 'multiselect' ? 'Dropdown (Select Multiple)' : attr.type} {attr.required ? '• Required' : ''}</p>
                           </div>
                           <button
                             onClick={() => handleDeleteAttribute(attr.id)}
@@ -1122,7 +1371,7 @@ function AppContent() {
                           </select>
                         )}
                         {attr.type === 'select' && (
-                          <select 
+                          <select
                             required={attr.required}
                             onChange={e => setPerformerCustomData({...performerCustomData, [attr.label]: e.target.value})}
                             className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm bg-white"
@@ -1133,13 +1382,37 @@ function AppContent() {
                             ))}
                           </select>
                         )}
+                        {attr.type === 'multiselect' && (
+                          <div className="space-y-2 border border-[#E5E7EB] rounded-xl px-4 py-3">
+                            {attr.options.split(',').map(opt => {
+                              const trimmed = opt.trim();
+                              const selected: string[] = performerCustomData[attr.label] || [];
+                              return (
+                                <label key={trimmed} className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.includes(trimmed)}
+                                    onChange={e => {
+                                      const updated = e.target.checked
+                                        ? [...selected, trimmed]
+                                        : selected.filter((v: string) => v !== trimmed);
+                                      setPerformerCustomData({...performerCustomData, [attr.label]: updated});
+                                    }}
+                                    className="rounded border-[#E5E7EB]"
+                                  />
+                                  <span className="text-sm">{trimmed}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               <div className="flex gap-3 pt-4">
-                <button 
+                <button
                   type="button"
                   onClick={() => setShowAddPerformer(false)}
                   className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
@@ -1201,7 +1474,7 @@ function AppContent() {
                       <div key={label} className="flex justify-between items-center py-2 border-b border-[#F3F4F6] last:border-0">
                         <span className="text-sm font-medium text-[#6B7280]">{label}</span>
                         <span className="text-sm font-bold text-[#111827]">
-                          {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
+                          {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : Array.isArray(value) ? value.join(', ') : String(value)}
                         </span>
                       </div>
                     ))}
@@ -1210,12 +1483,240 @@ function AppContent() {
               )}
             </div>
 
-            <button 
-              onClick={() => setShowPerformerDetails(null)}
-              className="w-full mt-8 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"
-            >
-              Close
-            </button>
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => setShowPerformerDetails(null)}
+                className="flex-1 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => startEditPerformer(showPerformerDetails)}
+                className="flex-1 bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+              >
+                <Pencil size={16} />
+                Edit
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+      {showScheduleCallback && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl"
+          >
+            <h3 className="text-2xl font-bold mb-2">Schedule Callback</h3>
+            <p className="text-[#6B7280] text-sm mb-6">
+              Set a date and time for {performers.find(p => p.id === showScheduleCallback.performerId)?.firstName} {performers.find(p => p.id === showScheduleCallback.performerId)?.lastName}'s callback.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Date & Time</label>
+                <input
+                  type="datetime-local"
+                  value={scheduleDateTime}
+                  onChange={e => setScheduleDateTime(e.target.value)}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleCallback(null)}
+                  className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (scheduleDateTime) {
+                      const formatted = new Date(scheduleDateTime).toLocaleString(undefined, {
+                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                        hour: 'numeric', minute: '2-digit'
+                      });
+                      await handleUpdateCallback(showScheduleCallback.id, { scheduledTime: formatted });
+                    }
+                    setShowScheduleCallback(null);
+                  }}
+                  className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
+                >
+                  Save Schedule
+                </button>
+              </div>
+              {showScheduleCallback.scheduledTime && (
+                <button
+                  onClick={async () => {
+                    await handleUpdateCallback(showScheduleCallback.id, { scheduledTime: '' });
+                    setShowScheduleCallback(null);
+                  }}
+                  className="w-full text-center text-sm text-[#EF4444] font-medium hover:underline"
+                >
+                  Clear scheduled time
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+      {editingPerformer && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
+          >
+            <h3 className="text-2xl font-bold mb-6">Edit Vocalist</h3>
+            <form onSubmit={handleEditPerformer} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">First Name</label>
+                  <input
+                    required
+                    type="text"
+                    value={editPerformerData.firstName}
+                    onChange={e => setEditPerformerData({...editPerformerData, firstName: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Last Name</label>
+                  <input
+                    required
+                    type="text"
+                    value={editPerformerData.lastName}
+                    onChange={e => setEditPerformerData({...editPerformerData, lastName: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Email Address</label>
+                <input
+                  required
+                  type="email"
+                  value={editPerformerData.email}
+                  onChange={e => setEditPerformerData({...editPerformerData, email: e.target.value})}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#374151] mb-1.5">Phone Number</label>
+                <input
+                  type="tel"
+                  value={editPerformerData.phone}
+                  onChange={e => setEditPerformerData({...editPerformerData, phone: e.target.value})}
+                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                />
+              </div>
+              {customAttributes.length > 0 && (
+                <div className="pt-4 border-t border-[#E5E7EB] space-y-4">
+                  <h4 className="font-bold text-[#4F46E5] text-sm uppercase tracking-wider">Vocal Attributes</h4>
+                  <div className="max-h-60 overflow-y-auto pr-2 grid grid-cols-1 gap-4">
+                    {customAttributes.map(attr => (
+                      <div key={attr.id}>
+                        <label className="block text-sm font-bold text-[#374151] mb-1.5">
+                          {attr.label} {attr.required && <span className="text-[#EF4444]">*</span>}
+                        </label>
+                        {attr.type === 'text' && (
+                          <input
+                            type="text"
+                            required={attr.required}
+                            value={editPerformerCustomData[attr.label] ?? ''}
+                            onChange={e => setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: e.target.value})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm"
+                          />
+                        )}
+                        {attr.type === 'number' && (
+                          <input
+                            type="number"
+                            required={attr.required}
+                            value={editPerformerCustomData[attr.label] ?? ''}
+                            onChange={e => setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: e.target.value})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm"
+                          />
+                        )}
+                        {attr.type === 'date' && (
+                          <input
+                            type="date"
+                            required={attr.required}
+                            value={editPerformerCustomData[attr.label] ?? ''}
+                            onChange={e => setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: e.target.value})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm"
+                          />
+                        )}
+                        {attr.type === 'boolean' && (
+                          <select
+                            required={attr.required}
+                            value={editPerformerCustomData[attr.label] === true ? 'true' : editPerformerCustomData[attr.label] === false ? 'false' : ''}
+                            onChange={e => setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: e.target.value === 'true'})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm bg-white"
+                          >
+                            <option value="">Select...</option>
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                          </select>
+                        )}
+                        {attr.type === 'select' && (
+                          <select
+                            required={attr.required}
+                            value={editPerformerCustomData[attr.label] ?? ''}
+                            onChange={e => setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: e.target.value})}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 text-sm bg-white"
+                          >
+                            <option value="">Select...</option>
+                            {attr.options.split(',').map(opt => (
+                              <option key={opt.trim()} value={opt.trim()}>{opt.trim()}</option>
+                            ))}
+                          </select>
+                        )}
+                        {attr.type === 'multiselect' && (
+                          <div className="space-y-2 border border-[#E5E7EB] rounded-xl px-4 py-3">
+                            {attr.options.split(',').map(opt => {
+                              const trimmed = opt.trim();
+                              const selected: string[] = editPerformerCustomData[attr.label] || [];
+                              return (
+                                <label key={trimmed} className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.includes(trimmed)}
+                                    onChange={e => {
+                                      const updated = e.target.checked
+                                        ? [...selected, trimmed]
+                                        : selected.filter((v: string) => v !== trimmed);
+                                      setEditPerformerCustomData({...editPerformerCustomData, [attr.label]: updated});
+                                    }}
+                                    className="rounded border-[#E5E7EB]"
+                                  />
+                                  <span className="text-sm">{trimmed}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingPerformer(null)}
+                  className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}

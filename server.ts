@@ -147,6 +147,20 @@ async function startServer() {
     }
   });
 
+  app.put('/api/performers/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await db.update(performers).set(req.body).where(eq(performers.id, parseInt(id))).returning();
+      if (updated.length === 0) {
+        res.status(404).json({ error: 'Performer not found' });
+        return;
+      }
+      res.json(updated[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update performer' });
+    }
+  });
+
   // Auditions
   app.get('/api/auditions', async (req, res) => {
     try {
@@ -214,6 +228,86 @@ async function startServer() {
       res.json(newCallback[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create callback' });
+    }
+  });
+
+  app.patch('/api/callbacks/:id', async (req, res) => {
+    try {
+      const updated = await db.update(callbacks)
+        .set(req.body)
+        .where(eq(callbacks.id, parseInt(req.params.id)))
+        .returning();
+      if (updated.length === 0) {
+        res.status(404).json({ error: 'Callback not found' });
+        return;
+      }
+      res.json(updated[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update callback' });
+    }
+  });
+
+  app.delete('/api/callbacks/:id', async (req, res) => {
+    try {
+      await db.delete(callbacks).where(eq(callbacks.id, parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete callback' });
+    }
+  });
+
+  app.post('/api/callbacks/:id/notify', async (req, res) => {
+    try {
+      const callback = await db.select().from(callbacks)
+        .where(eq(callbacks.id, parseInt(req.params.id)))
+        .then(rows => rows[0]);
+      if (!callback) {
+        return res.status(404).json({ error: 'Callback not found' });
+      }
+
+      const performer = callback.performerId
+        ? await db.select().from(performers).where(eq(performers.id, callback.performerId)).then(rows => rows[0])
+        : null;
+      if (!performer) {
+        return res.status(404).json({ error: 'Performer not found' });
+      }
+
+      const audition = callback.auditionId
+        ? await db.select().from(auditions).where(eq(auditions.id, callback.auditionId)).then(rows => rows[0])
+        : null;
+
+      const scheduledInfo = callback.scheduledTime
+        ? `<p>Your callback is scheduled for: <strong>${callback.scheduledTime}</strong></p>`
+        : '';
+
+      if (process.env.BREVO_API_KEY) {
+        await client.transactionalEmails.sendTransacEmail({
+          subject: `Callback Notification - ${audition?.title || 'Audition'}`,
+          htmlContent: `
+            <h2>Congratulations, ${performer.firstName}!</h2>
+            <p>You have been selected for a callback for <strong>${audition?.title || 'the audition'}</strong>.</p>
+            ${scheduledInfo}
+            ${callback.notes ? `<p>Notes: ${callback.notes}</p>` : ''}
+            <p>Please contact us if you have any questions.</p>
+          `,
+          sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
+          to: [{ email: performer.email }],
+        });
+        res.json({ success: true, message: 'Notification sent' });
+      } else {
+        console.log(`--- CALLBACK NOTIFICATION ---`);
+        console.log(`To: ${performer.email}`);
+        console.log(`Subject: Callback for ${audition?.title}`);
+        console.log(`Scheduled: ${callback.scheduledTime || 'TBD'}`);
+        console.log(`-----------------------------`);
+        res.json({ success: true, message: 'Notification logged to console (no Brevo API key configured)' });
+      }
+    } catch (err: any) {
+      console.error('Failed to send notification:', err);
+      const message = err?.status === 401
+        ? 'Email service authentication failed — check your Brevo API key'
+        : 'Failed to send notification';
+      res.status(500).json({ error: message });
     }
   });
 
