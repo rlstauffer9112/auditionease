@@ -206,7 +206,7 @@ function AppContent() {
     return <LandingPage onGetStarted={navigateToLogin} />;
   }
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
       const [audRes, perfRes, attrRes] = await Promise.all([
@@ -225,9 +225,9 @@ function AppContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const fetchSlots = async (auditionId: number) => {
+  async function fetchSlots(auditionId: number) {
     try {
       const res = await authFetch(`/api/auditions/${auditionId}/slots`);
       const data = await res.json();
@@ -235,7 +235,7 @@ function AppContent() {
     } catch (err) {
       console.error('Error fetching slots:', err);
     }
-  };
+  }
 
   const handleAddAudition = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -607,7 +607,23 @@ function AppContent() {
                           {audition.status}
                         </span>
                       </div>
-                      <h3 className="text-xl font-bold mb-2">{audition.title}</h3>
+                      <h3 className="text-xl font-bold mb-1">{audition.title}</h3>
+                      <div className="flex items-center gap-1.5 mb-3" onClick={e => e.stopPropagation()}>
+                        <Link2 size={12} className="text-[#4F46E5]" />
+                        <span className="text-xs font-mono text-[#4F46E5] truncate">{window.location.origin}/invite/{audition.inviteCode}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(`${window.location.origin}/invite/${audition.inviteCode}`);
+                            setCopiedInvite(true);
+                            setTimeout(() => setCopiedInvite(false), 2000);
+                          }}
+                          className="text-[#6B7280] hover:text-[#4F46E5] transition-colors flex-shrink-0"
+                          title="Copy invite link"
+                        >
+                          {copiedInvite ? <Check size={12} className="text-[#10B981]" /> : <Copy size={12} />}
+                        </button>
+                      </div>
                       <p className="text-[#6B7280] text-sm mb-6 line-clamp-2">{audition.description}</p>
                       <div className="flex items-center gap-4 text-sm text-[#6B7280] font-medium">
                         <div className="flex items-center gap-1.5">
