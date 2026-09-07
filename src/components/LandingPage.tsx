@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { 
-  Music, 
-  Users, 
-  Calendar, 
-  Trophy, 
-  CheckCircle2, 
+import {
+  ClipboardList,
+  Users,
+  Calendar,
+  Trophy,
+  CheckCircle2,
   ArrowRight,
-  Mic2,
+  SlidersHorizontal,
   Star,
   ShieldCheck,
   Zap
@@ -25,7 +25,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
-              <Music size={24} />
+              <ClipboardList size={24} />
             </div>
             <span className="text-xl font-bold tracking-tight text-[#1A1A1A]">AuditionEase</span>
           </div>
@@ -60,80 +60,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         </div>
 
         <div className="max-w-7xl mx-auto relative z-10 w-full">
-          {/* Left Floating Image - Wide Screens Only */}
-          <motion.div 
-            initial={{ opacity: 0, x: -100, rotate: -10 }}
-            animate={{ 
-              opacity: 1, 
-              x: 0, 
-              rotate: -6,
-              y: [0, -20, 0]
-            }}
-            transition={{ 
-              opacity: { duration: 1, delay: 0.4 },
-              x: { duration: 1, delay: 0.4 },
-              rotate: { duration: 1, delay: 0.4 },
-              y: { duration: 6, repeat: Infinity, ease: "easeInOut" }
-            }}
-            className="hidden 2xl:block absolute left-[-220px] top-12 w-64 h-80 rounded-[40px] overflow-hidden border border-indigo-100 shadow-2xl shadow-indigo-100/50"
-          >
-            <img 
-              src="https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&q=80&w=600" 
-              alt="Choir Singer" 
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </motion.div>
-
-          {/* Right Floating Image - Wide Screens Only */}
-          <motion.div 
-            initial={{ opacity: 0, x: 100, rotate: 10 }}
-            animate={{ 
-              opacity: 1, 
-              x: 0, 
-              rotate: 6,
-              y: [0, 20, 0]
-            }}
-            transition={{ 
-              opacity: { duration: 1, delay: 0.4 },
-              x: { duration: 1, delay: 0.4 },
-              rotate: { duration: 1, delay: 0.4 },
-              y: { duration: 7, repeat: Infinity, ease: "easeInOut", delay: 0.5 }
-            }}
-            className="hidden 2xl:block absolute right-[-220px] top-12 w-64 h-80 rounded-[40px] overflow-hidden border border-indigo-100 shadow-2xl shadow-indigo-100/50"
-          >
-            <img 
-              src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600" 
-              alt="Audition Performance" 
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </motion.div>
-
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="text-center px-6"
+            className="px-6"
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 border border-indigo-100 text-[#4F46E5] text-xs font-bold uppercase tracking-widest mb-12">
               <Star size={14} className="text-yellow-500" />
-              The Future of Choir Auditions is Here
+              The Future of Auditions is Here
             </div>
-            
+
             <h1 className="text-5xl md:text-8xl font-black tracking-tighter uppercase mb-8 leading-[0.9] text-[#1A1A1A]">
-              Choir<br />
-              <span className="text-[#4F46E5]">Auditions</span><br />
+              Every<br />
+              <span className="text-[#4F46E5]">Audition</span><br />
               Simplified
             </h1>
 
-            <p className="max-w-2xl mx-auto text-lg md:text-xl text-gray-600 mb-12 leading-relaxed">
-              The all-in-one platform for choir directors, conductors, and applicants. 
-              Streamline your workflow from initial call to section placement.
+            <p className="max-w-2xl text-lg md:text-xl text-gray-600 mb-12 leading-relaxed">
+              The all-in-one platform for directors, casting teams, and organizations.
+              Streamline your audition workflow from open call to final placement.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button 
+            <div className="flex flex-col sm:flex-row items-start gap-4">
+              <button
                 onClick={onGetStarted}
                 className="w-full sm:w-auto bg-[#4F46E5] text-white px-10 py-5 rounded-2xl font-black text-lg hover:bg-[#4338CA] transition-all hover:scale-105 active:scale-95 shadow-2xl shadow-indigo-500/20 flex items-center justify-center gap-3"
               >
@@ -153,11 +103,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-7xl mx-auto">
           <div className="mb-20">
             <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase mb-6">
-              Built for the <br />
-              <span className="text-[#4F46E5]">Modern Choir</span>
+              Built for <br />
+              <span className="text-[#4F46E5]">Modern Auditions</span>
             </h2>
             <p className="text-xl text-black/60 max-w-xl">
-              Powerful tools designed to handle the complexity of choral auditions and section placement.
+              Powerful tools designed to handle the complexity of auditions, evaluations, and placement decisions.
             </p>
           </div>
 
@@ -171,27 +121,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               {
                 icon: <Users className="text-[#4F46E5]" size={32} />,
                 title: "Applicant Directory",
-                description: "Maintain a comprehensive database of applicants with vocal ranges, section history, and audition notes."
+                description: "Maintain a comprehensive database of applicants with profiles, history, and audition notes."
               },
               {
                 icon: <Zap className="text-[#4F46E5]" size={32} />,
-                title: "Vocal Evaluation",
-                description: "Evaluate singers on the fly. Digital scorecards for range, sight-reading, and tone."
+                title: "Live Evaluation",
+                description: "Evaluate applicants on the fly with digital scorecards and customizable criteria."
               },
               {
                 icon: <Trophy className="text-[#4F46E5]" size={32} />,
-                title: "Section Placement",
-                description: "Seamlessly move singers through rounds. Manage section assignments with a visual pipeline."
+                title: "Placement Pipeline",
+                description: "Seamlessly move applicants through rounds. Manage placements with a visual Kanban board."
               },
               {
                 icon: <ShieldCheck className="text-[#4F46E5]" size={32} />,
                 title: "Secure & Private",
-                description: "Passwordless login and encrypted data ensure your choir's sensitive information stays protected."
+                description: "Passwordless login and encrypted data ensure your organization's sensitive information stays protected."
               },
               {
-                icon: <Mic2 className="text-[#4F46E5]" size={32} />,
-                title: "Vocal Profiles",
-                description: "Collect exactly what you need. Define custom fields for vocal range, choir experience, or sight-reading level."
+                icon: <SlidersHorizontal className="text-[#4F46E5]" size={32} />,
+                title: "Custom Attributes",
+                description: "Collect exactly what you need. Define custom fields tailored to your audition requirements."
               }
             ].map((feature, i) => (
               <motion.div 
@@ -219,10 +169,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               </h2>
               <div className="space-y-12">
                 {[
-                  { step: "01", title: "Set Up Auditions", desc: "Define your vocal requirements, audition dates, and location." },
-                  { step: "02", title: "Invite Singers", desc: "Share your audition link or manually add applicants to your directory." },
-                  { step: "03", title: "Hold Your Auditions", desc: "Evaluate singers in real-time with digital scorecards and instant feedback." },
-                  { step: "04", title: "Build Your Choir", desc: "Review scores, vocal ranges, and assign singers to sections with confidence." }
+                  { step: "01", title: "Set Up Auditions", desc: "Define your requirements, audition dates, and location." },
+                  { step: "02", title: "Invite Applicants", desc: "Share your audition link or manually add applicants to your directory." },
+                  { step: "03", title: "Hold Your Auditions", desc: "Evaluate applicants in real-time with digital scorecards and instant feedback." },
+                  { step: "04", title: "Make Your Selections", desc: "Review scores, compare applicants, and finalize placements with confidence." }
                 ].map((item, i) => (
                   <div key={i} className="flex gap-8">
                     <span className="text-5xl font-black text-[#4F46E5] opacity-20">{item.step}</span>
@@ -269,7 +219,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               <span className="text-[#4F46E5]">Pricing</span>
             </h2>
             <p className="text-xl text-gray-600 max-w-xl mx-auto">
-              Choose the plan that fits your choir's needs. No hidden fees.
+              Choose the plan that fits your needs. No hidden fees.
             </p>
           </div>
 
@@ -292,7 +242,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   "Up to 10 Applicants",
                   "Unlimited Auditions",
                   "Smart Scheduling",
-                  "Basic Vocal Profiles",
+                  "Basic Applicant Profiles",
                   "Email Support"
                 ].map((feature, i) => (
                   <li key={i} className="flex items-center gap-3 text-gray-600">
@@ -318,7 +268,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               
               <div className="mb-8 relative z-10">
                 <h3 className="text-2xl font-bold mb-2 text-white">Pro</h3>
-                <p className="text-white/80 text-sm uppercase tracking-widest font-bold">For Professional Choirs</p>
+                <p className="text-white/80 text-sm uppercase tracking-widest font-bold">For Professional Teams</p>
               </div>
               <div className="mb-8 relative z-10">
                 <span className="text-5xl font-black text-white">$19.95</span>
@@ -328,8 +278,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 {[
                   "Unlimited Applicants",
                   "Unlimited Auditions",
-                  "Advanced Section Placement",
-                  "Custom Vocal Attributes",
+                  "Advanced Placement Pipeline",
+                  "Custom Attributes",
                   "Priority Support",
                   "Data Export"
                 ].map((feature, i) => (
@@ -356,31 +306,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
           <div className="text-center mb-20">
             <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase mb-6">
               Loved by <br />
-              <span className="text-[#4F46E5]">Choir Directors</span>
+              <span className="text-[#4F46E5]">Directors Everywhere</span>
             </h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
               {
-                quote: "AuditionEase has completely changed how we handle our annual choir intake. No more spreadsheets or missed emails.",
+                quote: "AuditionEase has completely changed how we handle our annual auditions. No more spreadsheets or missed emails.",
                 author: "Sarah Jenkins",
-                role: "Choral Director, Metro Arts"
+                role: "Artistic Director, Metro Arts"
               },
               {
-                quote: "The section placement pipeline is a game-changer. I can see exactly where my balance is at any moment.",
+                quote: "The placement pipeline is a game-changer. I can see exactly where every applicant stands at any moment.",
                 author: "David Chen",
-                role: "Conductor, City Symphony Chorus"
+                role: "Casting Director, City Theater"
               },
               {
                 quote: "Applicants love the self-scheduling feature. It makes us look professional from the very first interaction.",
                 author: "Elena Rodriguez",
-                role: "Vocal Coach & Choir Lead"
+                role: "Program Director, Dance Academy"
               }
             ].map((testimonial, i) => (
               <div key={i} className="p-10 rounded-[40px] bg-[#F3F4F6] border border-[#E5E7EB] relative">
                 <div className="absolute top-10 right-10 text-[#4F46E5] opacity-10">
-                  <Music size={64} />
+                  <ClipboardList size={64} />
                 </div>
                 <p className="text-xl font-medium mb-8 relative z-10 italic">"{testimonial.quote}"</p>
                 <div>
@@ -403,7 +353,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             Ready to <br />Simplify Your Auditions?
           </h2>
           <p className="text-xl text-white/80 mb-12 max-w-xl mx-auto relative z-10">
-            Join choir directors who have transformed their audition process with AuditionEase.
+            Join directors and organizations who have transformed their audition process with AuditionEase.
           </p>
           <button 
             onClick={onGetStarted}
@@ -419,12 +369,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-[#4F46E5] rounded-lg flex items-center justify-center text-white">
-              <Music size={18} />
+              <ClipboardList size={18} />
             </div>
             <span className="text-lg font-bold tracking-tight text-[#1A1A1A]">AuditionEase</span>
           </div>
           <p className="text-gray-400 text-sm">
-            © 2024 AuditionEase. All rights reserved.
+            © {new Date().getFullYear()} AuditionEase. All rights reserved.
           </p>
           <div className="flex gap-6 text-sm text-gray-500">
             <a href="#" className="hover:text-[#4F46E5]">Privacy</a>
