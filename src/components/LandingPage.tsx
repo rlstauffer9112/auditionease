@@ -35,12 +35,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             <a href="#pricing" className="hover:text-[#4F46E5] transition-colors">Pricing</a>
             <a href="#testimonials" className="hover:text-[#4F46E5] transition-colors">Testimonials</a>
           </div>
-          <button 
-            onClick={onGetStarted}
-            className="bg-[#4F46E5] text-white px-6 py-2.5 rounded-full font-bold text-sm hover:bg-[#4338CA] transition-all active:scale-95 shadow-lg shadow-indigo-100"
-          >
-            Get Started
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onGetStarted}
+              className="text-[#4F46E5] px-5 py-2.5 rounded-full font-bold text-sm hover:bg-indigo-50 transition-all"
+            >
+              Log In
+            </button>
+            <button
+              onClick={onGetStarted}
+              className="bg-[#4F46E5] text-white px-6 py-2.5 rounded-full font-bold text-sm hover:bg-[#4338CA] transition-all active:scale-95 shadow-lg shadow-indigo-100"
+            >
+              Get Started
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -96,7 +104,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
           >
             <img 
               src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600" 
-              alt="Vocalist Singing" 
+              alt="Audition Performance" 
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
             />
@@ -120,7 +128,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             </h1>
 
             <p className="max-w-2xl mx-auto text-lg md:text-xl text-gray-600 mb-12 leading-relaxed">
-              The all-in-one platform for choir directors, conductors, and vocalists. 
+              The all-in-one platform for choir directors, conductors, and applicants. 
               Streamline your workflow from initial call to section placement.
             </p>
 
@@ -158,12 +166,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               {
                 icon: <Calendar className="text-[#4F46E5]" size={32} />,
                 title: "Smart Scheduling",
-                description: "Generate time slots instantly. Let vocalists book their own times or assign them manually with ease."
+                description: "Generate time slots instantly. Let applicants book their own times or assign them manually with ease."
               },
               {
                 icon: <Users className="text-[#4F46E5]" size={32} />,
-                title: "Vocalist Directory",
-                description: "Maintain a comprehensive database of singers with vocal ranges, section history, and audition notes."
+                title: "Applicant Directory",
+                description: "Maintain a comprehensive database of applicants with vocal ranges, section history, and audition notes."
               },
               {
                 icon: <Zap className="text-[#4F46E5]" size={32} />,
@@ -212,7 +220,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               <div className="space-y-12">
                 {[
                   { step: "01", title: "Set Up Auditions", desc: "Define your vocal requirements, audition dates, and location." },
-                  { step: "02", title: "Invite Singers", desc: "Share your audition link or manually add vocalists to your directory." },
+                  { step: "02", title: "Invite Singers", desc: "Share your audition link or manually add applicants to your directory." },
                   { step: "03", title: "Hold Your Auditions", desc: "Evaluate singers in real-time with digital scorecards and instant feedback." },
                   { step: "04", title: "Build Your Choir", desc: "Review scores, vocal ranges, and assign singers to sections with confidence." }
                 ].map((item, i) => (
@@ -281,7 +289,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               </div>
               <ul className="space-y-4 mb-10 flex-grow">
                 {[
-                  "Up to 10 Vocalists",
+                  "Up to 10 Applicants",
                   "Unlimited Auditions",
                   "Smart Scheduling",
                   "Basic Vocal Profiles",
@@ -318,7 +326,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               </div>
               <ul className="space-y-4 mb-10 flex-grow relative z-10">
                 {[
-                  "Unlimited Vocalists",
+                  "Unlimited Applicants",
                   "Unlimited Auditions",
                   "Advanced Section Placement",
                   "Custom Vocal Attributes",
@@ -365,7 +373,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 role: "Conductor, City Symphony Chorus"
               },
               {
-                quote: "Vocalists love the self-scheduling feature. It makes us look professional from the very first interaction.",
+                quote: "Applicants love the self-scheduling feature. It makes us look professional from the very first interaction.",
                 author: "Elena Rodriguez",
                 role: "Vocal Coach & Choir Lead"
               }

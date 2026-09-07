@@ -1,27 +1,35 @@
 import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
-export const performers = pgTable('performers', {
+export const users = pgTable('users', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id).notNull(),
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull(),
-  email: text('email').notNull(),
+  email: text('email').notNull().unique(),
   phone: text('phone'),
   notes: text('notes'),
+  isTest: boolean('is_test').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const auditionUsers = pgTable('audition_users', {
+  id: serial('id').primaryKey(),
+  auditionId: integer('audition_id').references(() => auditions.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
-  index('performers_user_id_idx').on(table.userId),
+  uniqueIndex('audition_users_unique_idx').on(table.auditionId, table.userId),
+  index('audition_users_user_id_idx').on(table.userId),
 ]);
 
-export const performerCustomFields = pgTable('performer_custom_fields', {
+export const auditionUserCustomFields = pgTable('audition_user_custom_fields', {
   id: serial('id').primaryKey(),
-  performerId: integer('performer_id').references(() => performers.id).notNull(),
+  auditionUserId: integer('audition_user_id').references(() => auditionUsers.id).notNull(),
   customAttributeId: integer('custom_attribute_id').references(() => customAttributes.id).notNull(),
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex('performer_custom_fields_unique_idx').on(table.performerId, table.customAttributeId),
-  index('performer_custom_fields_attribute_id_idx').on(table.customAttributeId),
+  uniqueIndex('audition_user_custom_fields_unique_idx').on(table.auditionUserId, table.customAttributeId),
+  index('audition_user_custom_fields_attribute_id_idx').on(table.customAttributeId),
 ]);
 
 export const customAttributes = pgTable('custom_attributes', {
@@ -53,7 +61,7 @@ export const auditions = pgTable('auditions', {
 export const auditionSlots = pgTable('audition_slots', {
   id: serial('id').primaryKey(),
   auditionId: integer('audition_id').references(() => auditions.id),
-  performerId: integer('performer_id').references(() => performers.id),
+  userId: integer('user_id').references(() => users.id),
   date: text('date').notNull(),
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
@@ -66,18 +74,10 @@ export const auditionSlots = pgTable('audition_slots', {
 export const callbacks = pgTable('callbacks', {
   id: serial('id').primaryKey(),
   auditionId: integer('audition_id').references(() => auditions.id),
-  performerId: integer('performer_id').references(() => performers.id),
+  userId: integer('user_id').references(() => users.id),
   scheduledTime: text('scheduled_time'),
   notes: text('notes'),
   finalDecision: text('final_decision').$type<'accepted' | 'rejected' | 'pending'>().default('pending'),
-});
-
-export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
-  firstName: text('first_name').notNull(),
-  lastName: text('last_name').notNull(),
-  email: text('email').notNull().unique(),
-  createdAt: timestamp('created_at').defaultNow(),
 });
 
 export const loginTokens = pgTable('login_tokens', {
@@ -95,3 +95,15 @@ export const userSettings = pgTable('user_settings', {
   key: text('key').notNull(),
   value: text('value').notNull(),
 });
+
+export const reports = pgTable('reports', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  criteria: text('criteria').notNull().default('[]'),
+  columns: text('columns').notNull().default('[]'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('reports_user_id_idx').on(table.userId),
+]);

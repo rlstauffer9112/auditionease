@@ -2,8 +2,8 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { performers, auditions, auditionSlots, callbacks, customAttributes, performerCustomFields, users, loginTokens, userSettings } from './src/db/schema';
-import { eq, and, asc, gt, desc, sql, inArray } from 'drizzle-orm';
+import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports } from './src/db/schema';
+import { eq, and, or, asc, gt, lte, desc, sql, inArray } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
@@ -167,7 +167,7 @@ async function startServer() {
       const attrId = parseInt(req.params.id);
       const attr = await db.select().from(customAttributes).where(eq(customAttributes.id, attrId)).then(rows => rows[0]);
       if (!attr || attr.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
-      await db.delete(performerCustomFields).where(eq(performerCustomFields.customAttributeId, attrId));
+      await db.delete(auditionUserCustomFields).where(eq(auditionUserCustomFields.customAttributeId, attrId));
       await db.delete(customAttributes).where(eq(customAttributes.id, attrId));
       res.json({ success: true });
     } catch (err) {
@@ -175,103 +175,104 @@ async function startServer() {
     }
   });
 
-  // Performers
-  app.get('/api/performers', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  // Audition Users (vocalists participating in an audition)
+  app.get('/api/auditions/:id/users', async (req, res) => {
+    const currentUserId = getUserIdFromRequest(req);
+    if (!currentUserId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await verifyAuditionOwnership(auditionId, currentUserId)) return res.status(403).json({ error: 'Forbidden' });
     try {
-      const allPerformers = await db.select().from(performers).where(eq(performers.userId, userId));
-      const performerIds = allPerformers.map(p => p.id);
-      let allCustomFieldValues: (typeof performerCustomFields.$inferSelect)[] = [];
-      if (performerIds.length > 0) {
-        allCustomFieldValues = await db.select().from(performerCustomFields)
-          .where(inArray(performerCustomFields.performerId, performerIds));
-      }
-      const cfByPerformer = new Map<number, typeof allCustomFieldValues>();
-      for (const cf of allCustomFieldValues) {
-        let arr = cfByPerformer.get(cf.performerId);
-        if (!arr) { arr = []; cfByPerformer.set(cf.performerId, arr); }
+      const auRows = await db.select().from(auditionUsers)
+        .where(eq(auditionUsers.auditionId, auditionId));
+      if (auRows.length === 0) return res.json([]);
+
+      const auIds = auRows.map(au => au.id);
+      const userIds = auRows.map(au => au.userId);
+
+      const [usersData, cfValues] = await Promise.all([
+        db.select().from(users).where(inArray(users.id, userIds)),
+        db.select().from(auditionUserCustomFields).where(inArray(auditionUserCustomFields.auditionUserId, auIds)),
+      ]);
+
+      const userMap = new Map(usersData.map(u => [u.id, u]));
+      const cfByAuId = new Map<number, (typeof cfValues)[number][]>();
+      for (const cf of cfValues) {
+        let arr = cfByAuId.get(cf.auditionUserId);
+        if (!arr) { arr = []; cfByAuId.set(cf.auditionUserId, arr); }
         arr.push(cf);
       }
-      res.json(allPerformers.map(p => ({
-        ...p,
-        customFieldValues: cfByPerformer.get(p.id) || [],
-      })));
+
+      res.json(auRows.map(au => {
+        const user = userMap.get(au.userId);
+        return {
+          auditionUserId: au.id,
+          userId: au.userId,
+          firstName: user?.firstName ?? '',
+          lastName: user?.lastName ?? '',
+          email: user?.email ?? '',
+          phone: user?.phone ?? '',
+          notes: user?.notes ?? '',
+          customFieldValues: cfByAuId.get(au.id) || [],
+        };
+      }));
     } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch performers' });
+      res.status(500).json({ error: 'Failed to fetch audition users' });
     }
   });
 
-  app.post('/api/performers', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  app.patch('/api/audition-users/:auId', async (req, res) => {
+    const currentUserId = getUserIdFromRequest(req);
+    if (!currentUserId) return res.status(401).json({ error: 'Unauthorized' });
+    const auId = parseInt(req.params.auId);
     try {
-      const { customFieldValues, ...performerData } = req.body;
-      const newPerformer = await db.insert(performers).values({ ...performerData, userId }).returning();
-      const performerId = newPerformer[0].id;
-      if (customFieldValues && customFieldValues.length > 0) {
-        await db.insert(performerCustomFields).values(
-          customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
-            performerId,
-            customAttributeId: cf.customAttributeId,
-            value: cf.value,
-            updatedAt: new Date(),
-          }))
-        );
+      const auRow = await db.select().from(auditionUsers).where(eq(auditionUsers.id, auId)).then(r => r[0]);
+      if (!auRow) return res.status(404).json({ error: 'Not found' });
+      if (!await verifyAuditionOwnership(auRow.auditionId, currentUserId)) return res.status(403).json({ error: 'Forbidden' });
+
+      const { firstName, lastName, phone, customFieldValues } = req.body;
+      if (firstName !== undefined || lastName !== undefined || phone !== undefined) {
+        const updates: Record<string, any> = {};
+        if (firstName !== undefined) updates.firstName = firstName;
+        if (lastName !== undefined) updates.lastName = lastName;
+        if (phone !== undefined) updates.phone = phone || null;
+        await db.update(users).set(updates).where(eq(users.id, auRow.userId));
       }
-      const savedCf = await db.select().from(performerCustomFields)
-        .where(eq(performerCustomFields.performerId, performerId));
-      res.json({ ...newPerformer[0], customFieldValues: savedCf });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to create performer' });
-    }
-  });
 
-  app.put('/api/performers/:id', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const { id } = req.params;
-      const performerId = parseInt(id);
-      const existing = await db.select().from(performers).where(eq(performers.id, performerId)).then(rows => rows[0]);
-      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
-      const { customFieldValues, ...performerData } = req.body;
-      const updated = await db.update(performers).set(performerData).where(eq(performers.id, performerId)).returning();
-      const existingCf = await db.select().from(performerCustomFields)
-        .where(eq(performerCustomFields.performerId, performerId));
-      const existingMap = new Map(existingCf.map(cf => [cf.customAttributeId, cf]));
-      const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues ?? [];
-      const incomingIds = new Set(incomingCfs.map(cf => cf.customAttributeId));
+      if (customFieldValues && Array.isArray(customFieldValues)) {
+        const existingCf = await db.select().from(auditionUserCustomFields)
+          .where(eq(auditionUserCustomFields.auditionUserId, auId));
+        const existingMap = new Map(existingCf.map(cf => [cf.customAttributeId, cf]));
+        const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues;
+        const incomingIds = new Set(incomingCfs.map(cf => cf.customAttributeId));
 
-      for (const cf of incomingCfs) {
-        const existing = existingMap.get(cf.customAttributeId);
-        if (existing) {
-          if (existing.value !== cf.value) {
-            await db.update(performerCustomFields)
-              .set({ value: cf.value, updatedAt: new Date() })
-              .where(eq(performerCustomFields.id, existing.id));
+        for (const cf of incomingCfs) {
+          const prev = existingMap.get(cf.customAttributeId);
+          if (prev) {
+            if (prev.value !== cf.value) {
+              await db.update(auditionUserCustomFields)
+                .set({ value: cf.value, updatedAt: new Date() })
+                .where(eq(auditionUserCustomFields.id, prev.id));
+            }
+          } else {
+            await db.insert(auditionUserCustomFields).values({
+              auditionUserId: auId,
+              customAttributeId: cf.customAttributeId,
+              value: cf.value,
+              updatedAt: new Date(),
+            });
           }
-        } else {
-          await db.insert(performerCustomFields).values({
-            performerId,
-            customAttributeId: cf.customAttributeId,
-            value: cf.value,
-            updatedAt: new Date(),
-          });
+        }
+        const removedIds = existingCf
+          .filter(cf => !incomingIds.has(cf.customAttributeId))
+          .map(cf => cf.id);
+        if (removedIds.length > 0) {
+          await db.delete(auditionUserCustomFields).where(inArray(auditionUserCustomFields.id, removedIds));
         }
       }
 
-      const removedIds = existingCf
-        .filter(cf => !incomingIds.has(cf.customAttributeId))
-        .map(cf => cf.id);
-      if (removedIds.length > 0) {
-        await db.delete(performerCustomFields).where(inArray(performerCustomFields.id, removedIds));
-      }
-      const savedCf = await db.select().from(performerCustomFields)
-        .where(eq(performerCustomFields.performerId, performerId));
-      res.json({ ...updated[0], customFieldValues: savedCf });
+      res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to update performer' });
+      res.status(500).json({ error: 'Failed to update applicant' });
     }
   });
 
@@ -280,7 +281,23 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const allAuditions = await db.select().from(auditions).where(eq(auditions.userId, userId));
+      const allAuditions = await db
+        .select({
+          id: auditions.id,
+          userId: auditions.userId,
+          title: auditions.title,
+          description: auditions.description,
+          date: auditions.date,
+          location: auditions.location,
+          status: auditions.status,
+          inviteCode: auditions.inviteCode,
+          createdAt: auditions.createdAt,
+          userCount: sql<number>`${sql.raw("cast((select count(*) from audition_users where audition_users.audition_id = auditions.id) as int)")}`,
+          openSlots: sql<number>`${sql.raw("cast((select count(*) from audition_slots where audition_slots.audition_id = auditions.id and audition_slots.status = 'available') as int)")}`,
+          filledSlots: sql<number>`${sql.raw("cast((select count(*) from audition_slots where audition_slots.audition_id = auditions.id and audition_slots.status in ('booked', 'completed', 'no-show')) as int)")}`,
+        })
+        .from(auditions)
+        .where(eq(auditions.userId, userId));
       res.json(allAuditions);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch auditions' });
@@ -308,6 +325,43 @@ async function startServer() {
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
+    }
+  });
+
+  app.patch('/api/auditions/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await verifyAuditionOwnership(auditionId, userId)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    try {
+      const { title, description, date, location, status, inviteCode } = req.body;
+      if (inviteCode !== undefined) {
+        const code = inviteCode.trim();
+        if (code.length === 0 || code.length > 31) {
+          return res.status(400).json({ error: 'Invite code must be between 1 and 31 characters' });
+        }
+        if (!/^[A-Za-z0-9_-]+$/.test(code)) {
+          return res.status(400).json({ error: 'Invite code can only contain letters, numbers, underscores, and dashes' });
+        }
+        const existing = await db.select({ id: auditions.id }).from(auditions)
+          .where(and(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`, sql`${auditions.id} != ${auditionId}`));
+        if (existing.length > 0) {
+          return res.status(409).json({ error: 'Invite code is already in use' });
+        }
+      }
+      const updates: Record<string, any> = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (date !== undefined) updates.date = date;
+      if (location !== undefined) updates.location = location;
+      if (status !== undefined) updates.status = status;
+      if (inviteCode !== undefined) updates.inviteCode = inviteCode.trim();
+      const updated = await db.update(auditions).set(updates).where(eq(auditions.id, auditionId)).returning();
+      res.json(updated[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update audition' });
     }
   });
 
@@ -425,11 +479,11 @@ async function startServer() {
       }
       if (!callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
 
-      const performer = callback.performerId
-        ? await db.select().from(performers).where(eq(performers.id, callback.performerId)).then(rows => rows[0])
+      const callbackUser = callback.userId
+        ? await db.select().from(users).where(eq(users.id, callback.userId)).then(rows => rows[0])
         : null;
-      if (!performer) {
-        return res.status(404).json({ error: 'Performer not found' });
+      if (!callbackUser) {
+        return res.status(404).json({ error: 'User not found' });
       }
 
       const audition = callback.auditionId
@@ -444,19 +498,19 @@ async function startServer() {
         await client.transactionalEmails.sendTransacEmail({
           subject: `Callback Notification - ${audition?.title || 'Audition'}`,
           htmlContent: `
-            <h2>Congratulations, ${performer.firstName}!</h2>
+            <h2>Congratulations, ${callbackUser.firstName}!</h2>
             <p>You have been selected for a callback for <strong>${audition?.title || 'the audition'}</strong>.</p>
             ${scheduledInfo}
             ${callback.notes ? `<p>Notes: ${callback.notes}</p>` : ''}
             <p>Please contact us if you have any questions.</p>
           `,
           sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
-          to: [{ email: performer.email }],
+          to: [{ email: callbackUser.email }],
         });
         res.json({ success: true, message: 'Notification sent' });
       } else {
         console.log(`--- CALLBACK NOTIFICATION ---`);
-        console.log(`To: ${performer.email}`);
+        console.log(`To: ${callbackUser.email}`);
         console.log(`Subject: Callback for ${audition?.title}`);
         console.log(`Scheduled: ${callback.scheduledTime || 'TBD'}`);
         console.log(`-----------------------------`);
@@ -468,6 +522,208 @@ async function startServer() {
         ? 'Email service authentication failed — check your Brevo API key'
         : 'Failed to send notification';
       res.status(500).json({ error: message });
+    }
+  });
+
+  // Reports
+  app.get('/api/reports', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const userReports = await db.select().from(reports).where(eq(reports.userId, userId)).orderBy(desc(reports.createdAt));
+      res.json(userReports);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+  });
+
+  app.post('/api/reports', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const { name, criteria, columns } = req.body;
+      const newReport = await db.insert(reports).values({ userId, name, criteria, columns }).returning();
+      res.json(newReport[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create report' });
+    }
+  });
+
+  app.put('/api/reports/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const reportId = parseInt(req.params.id);
+      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
+      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      const { name, criteria, columns } = req.body;
+      const updated = await db.update(reports).set({ name, criteria, columns, updatedAt: new Date() }).where(eq(reports.id, reportId)).returning();
+      res.json(updated[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update report' });
+    }
+  });
+
+  app.delete('/api/reports/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const reportId = parseInt(req.params.id);
+      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
+      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      await db.delete(reports).where(eq(reports.id, reportId));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete report' });
+    }
+  });
+
+  app.post('/api/reports/:id/run', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const reportId = parseInt(req.params.id);
+      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
+      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+      const criteria: any[] = JSON.parse(report.criteria || '[]');
+      const reportColumns: any[] = JSON.parse(report.columns || '[]');
+
+      const userAuditions = await db.select().from(auditions).where(eq(auditions.userId, userId));
+      if (userAuditions.length === 0) return res.json({ columns: reportColumns, rows: [] });
+
+      const auditionIds = userAuditions.map(a => a.id);
+      const auditionMap = new Map(userAuditions.map(a => [a.id, a]));
+
+      const auRows = await db.select().from(auditionUsers).where(inArray(auditionUsers.auditionId, auditionIds));
+      if (auRows.length === 0) return res.json({ columns: reportColumns, rows: [] });
+
+      const auIds = auRows.map(au => au.id);
+      const userIds = [...new Set(auRows.map(au => au.userId))];
+
+      const [usersData, cfValues, slotsData, attrs] = await Promise.all([
+        db.select().from(users).where(inArray(users.id, userIds)),
+        db.select().from(auditionUserCustomFields).where(inArray(auditionUserCustomFields.auditionUserId, auIds)),
+        db.select().from(auditionSlots).where(inArray(auditionSlots.auditionId, auditionIds)),
+        db.select().from(customAttributes).where(eq(customAttributes.userId, userId)),
+      ]);
+
+      const userMap = new Map(usersData.map(u => [u.id, u]));
+      const attrMap = new Map(attrs.map(a => [a.id, a]));
+
+      const enrichedRows = auRows.map(au => {
+        const userData = userMap.get(au.userId);
+        const audition = auditionMap.get(au.auditionId);
+        const cfv = cfValues.filter(cf => cf.auditionUserId === au.id);
+        const slot = slotsData.find(s => s.auditionId === au.auditionId && s.userId === au.userId && s.status === 'completed');
+
+        const row: Record<string, any> = {
+          firstName: userData?.firstName || '',
+          lastName: userData?.lastName || '',
+          email: userData?.email || '',
+          phone: userData?.phone || '',
+          auditionTitle: audition?.title || '',
+          auditionDate: audition?.date || '',
+          score: slot?.score ?? '',
+          feedback: slot?.feedback || '',
+          passedToCallback: slot ? (slot.passedToCallback ? 'Yes' : 'No') : '',
+        };
+
+        for (const cf of cfv) {
+          row[`custom:${cf.customAttributeId}`] = cf.value;
+        }
+
+        return row;
+      });
+
+      function evaluateCondition(row: Record<string, any>, condition: any): boolean {
+        const rawValue = row[condition.field];
+        const fieldValue = String(rawValue ?? '');
+        const compareValue = String(condition.value ?? '');
+
+        let fieldType = 'text';
+        if (condition.field.startsWith('custom:')) {
+          const attrId = parseInt(condition.field.split(':')[1]);
+          const attr = attrMap.get(attrId);
+          if (attr) fieldType = attr.type;
+        } else if (condition.field === 'score') {
+          fieldType = 'number';
+        } else if (condition.field === 'auditionDate') {
+          fieldType = 'date';
+        }
+
+        switch (condition.operator) {
+          case 'equals':
+            if (fieldType === 'number') return parseFloat(fieldValue) === parseFloat(compareValue);
+            return fieldValue.toLowerCase() === compareValue.toLowerCase();
+          case 'not_equals':
+            if (fieldType === 'number') return parseFloat(fieldValue) !== parseFloat(compareValue);
+            return fieldValue.toLowerCase() !== compareValue.toLowerCase();
+          case 'contains':
+            if (fieldType === 'multiselect') {
+              try {
+                const arr = JSON.parse(fieldValue);
+                if (Array.isArray(arr)) return arr.some((v: string) => String(v).toLowerCase() === compareValue.toLowerCase());
+              } catch {}
+            }
+            return fieldValue.toLowerCase().includes(compareValue.toLowerCase());
+          case 'not_contains':
+            if (fieldType === 'multiselect') {
+              try {
+                const arr = JSON.parse(fieldValue);
+                if (Array.isArray(arr)) return !arr.some((v: string) => String(v).toLowerCase() === compareValue.toLowerCase());
+              } catch {}
+            }
+            return !fieldValue.toLowerCase().includes(compareValue.toLowerCase());
+          case 'starts_with': return fieldValue.toLowerCase().startsWith(compareValue.toLowerCase());
+          case 'ends_with': return fieldValue.toLowerCase().endsWith(compareValue.toLowerCase());
+          case 'greater_than': return parseFloat(fieldValue) > parseFloat(compareValue);
+          case 'less_than': return parseFloat(fieldValue) < parseFloat(compareValue);
+          case 'greater_equal': return parseFloat(fieldValue) >= parseFloat(compareValue);
+          case 'less_equal': return parseFloat(fieldValue) <= parseFloat(compareValue);
+          case 'before': return fieldValue < compareValue;
+          case 'after': return fieldValue > compareValue;
+          case 'is_empty': return !fieldValue || fieldValue.trim() === '';
+          case 'is_not_empty': return !!fieldValue && fieldValue.trim() !== '';
+          default: return true;
+        }
+      }
+
+      const filteredRows = enrichedRows.filter(row => {
+        if (criteria.length === 0) return true;
+        let result = evaluateCondition(row, criteria[0]);
+        for (let i = 1; i < criteria.length; i++) {
+          const cond = criteria[i];
+          const condResult = evaluateCondition(row, cond);
+          if (cond.logicOp === 'OR') {
+            result = result || condResult;
+          } else {
+            result = result && condResult;
+          }
+        }
+        return result;
+      });
+
+      const displayRows = filteredRows.map(row => {
+        const display: Record<string, any> = { ...row };
+        for (const key of Object.keys(display)) {
+          if (key.startsWith('custom:')) {
+            const attrId = parseInt(key.split(':')[1]);
+            const attr = attrMap.get(attrId);
+            if (attr?.type === 'multiselect' && typeof display[key] === 'string') {
+              try { display[key] = JSON.parse(display[key]).join(', '); } catch {}
+            } else if (attr?.type === 'boolean') {
+              display[key] = display[key] === 'true' ? 'Yes' : 'No';
+            }
+          }
+        }
+        return display;
+      });
+
+      res.json({ columns: reportColumns, rows: displayRows });
+    } catch (err) {
+      console.error('Failed to run report:', err);
+      res.status(500).json({ error: 'Failed to run report' });
     }
   });
 
@@ -511,8 +767,6 @@ async function startServer() {
         token: `invite:${token}:${verifyCode}:${email}`,
         expiresAt,
       });
-
-      const verifyLink = `Your verification code is: ${verifyCode}`;
 
       try {
         if (process.env.BREVO_API_KEY) {
@@ -558,25 +812,34 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid or expired verification code' });
       }
 
-      await db.update(loginTokens).set({ used: true }).where(eq(loginTokens.id, loginToken.id));
+      await db.delete(loginTokens).where(
+        or(eq(loginTokens.id, loginToken.id), lte(loginTokens.expiresAt, new Date()))
+      );
 
       const audition = await db.select().from(auditions)
         .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
         .then(rows => rows[0]);
       if (!audition) return res.status(404).json({ error: 'Audition not found' });
 
-      const existing = await db.select().from(performers)
-        .where(and(eq(performers.userId, audition.userId), sql`lower(${performers.email}) = ${email.toLowerCase()}`))
+      const existingUser = await db.select().from(users)
+        .where(sql`lower(${users.email}) = ${email.toLowerCase()}`)
         .then(rows => rows[0]);
 
-      let performerData = null;
-      if (existing) {
-        const cfValues = await db.select().from(performerCustomFields)
-          .where(eq(performerCustomFields.performerId, existing.id));
-        performerData = { ...existing, customFieldValues: cfValues };
+      let userData = null;
+      if (existingUser) {
+        const auRecord = await db.select().from(auditionUsers)
+          .where(and(eq(auditionUsers.auditionId, audition.id), eq(auditionUsers.userId, existingUser.id)))
+          .then(rows => rows[0]);
+
+        let cfValues: any[] = [];
+        if (auRecord) {
+          cfValues = await db.select().from(auditionUserCustomFields)
+            .where(eq(auditionUserCustomFields.auditionUserId, auRecord.id));
+        }
+        userData = { ...existingUser, customFieldValues: cfValues };
       }
 
-      res.json({ verified: true, performer: performerData });
+      res.json({ verified: true, user: userData });
     } catch (err) {
       res.status(500).json({ error: 'Failed to confirm email' });
     }
@@ -596,35 +859,56 @@ async function startServer() {
         .then(rows => rows[0]);
       if (!audition) return res.status(404).json({ error: 'Audition not found' });
 
-      const existing = await db.select().from(performers)
-        .where(and(eq(performers.userId, audition.userId), sql`lower(${performers.email}) = ${email.toLowerCase()}`))
+      // Find or create user
+      let existingUser = await db.select().from(users)
+        .where(sql`lower(${users.email}) = ${email.toLowerCase()}`)
         .then(rows => rows[0]);
 
-      let performer;
-      if (existing) {
-        const updated = await db.update(performers)
+      let user;
+      if (existingUser) {
+        const updated = await db.update(users)
           .set({ firstName, lastName, phone: phone || null })
-          .where(eq(performers.id, existing.id))
+          .where(eq(users.id, existingUser.id))
           .returning();
-        performer = updated[0];
+        user = updated[0];
+      } else {
+        const created = await db.insert(users)
+          .values({ firstName, lastName, email, phone: phone || null })
+          .returning();
+        user = created[0];
+      }
 
-        const existingCf = await db.select().from(performerCustomFields)
-          .where(eq(performerCustomFields.performerId, existing.id));
+      // Ensure audition_users entry exists
+      let auRecord = await db.select().from(auditionUsers)
+        .where(and(eq(auditionUsers.auditionId, audition.id), eq(auditionUsers.userId, user.id)))
+        .then(rows => rows[0]);
+
+      if (!auRecord) {
+        const created = await db.insert(auditionUsers)
+          .values({ auditionId: audition.id, userId: user.id })
+          .returning();
+        auRecord = created[0];
+      }
+
+      // Upsert custom field values
+      if (customFieldValues && customFieldValues.length > 0) {
+        const existingCf = await db.select().from(auditionUserCustomFields)
+          .where(eq(auditionUserCustomFields.auditionUserId, auRecord.id));
         const existingMap = new Map(existingCf.map(cf => [cf.customAttributeId, cf]));
-        const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues ?? [];
+        const incomingCfs: { customAttributeId: number; value: string }[] = customFieldValues;
         const incomingIds = new Set(incomingCfs.map(cf => cf.customAttributeId));
 
         for (const cf of incomingCfs) {
           const prev = existingMap.get(cf.customAttributeId);
           if (prev) {
             if (prev.value !== cf.value) {
-              await db.update(performerCustomFields)
+              await db.update(auditionUserCustomFields)
                 .set({ value: cf.value, updatedAt: new Date() })
-                .where(eq(performerCustomFields.id, prev.id));
+                .where(eq(auditionUserCustomFields.id, prev.id));
             }
           } else {
-            await db.insert(performerCustomFields).values({
-              performerId: existing.id,
+            await db.insert(auditionUserCustomFields).values({
+              auditionUserId: auRecord.id,
               customAttributeId: cf.customAttributeId,
               value: cf.value,
               updatedAt: new Date(),
@@ -635,29 +919,13 @@ async function startServer() {
           .filter(cf => !incomingIds.has(cf.customAttributeId))
           .map(cf => cf.id);
         if (removedIds.length > 0) {
-          await db.delete(performerCustomFields).where(inArray(performerCustomFields.id, removedIds));
-        }
-      } else {
-        const created = await db.insert(performers)
-          .values({ userId: audition.userId, firstName, lastName, email, phone: phone || null })
-          .returning();
-        performer = created[0];
-
-        if (customFieldValues && customFieldValues.length > 0) {
-          await db.insert(performerCustomFields).values(
-            customFieldValues.map((cf: { customAttributeId: number; value: string }) => ({
-              performerId: performer.id,
-              customAttributeId: cf.customAttributeId,
-              value: cf.value,
-              updatedAt: new Date(),
-            }))
-          );
+          await db.delete(auditionUserCustomFields).where(inArray(auditionUserCustomFields.id, removedIds));
         }
       }
 
-      res.json({ success: true, performer });
+      res.json({ success: true, user });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to submit performer information' });
+      res.status(500).json({ error: 'Failed to submit information' });
     }
   });
 
@@ -684,7 +952,7 @@ async function startServer() {
       }
 
       const token = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
       await db.insert(loginTokens).values({
         userId: user.id,
@@ -736,13 +1004,12 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid or expired token' });
       }
 
-      // Mark token as used
-      await db.update(loginTokens)
-        .set({ used: true })
-        .where(eq(loginTokens.id, loginToken.id));
+      await db.delete(loginTokens).where(
+        or(eq(loginTokens.id, loginToken.id), lte(loginTokens.expiresAt, new Date()))
+      );
 
       const user = await db.select().from(users).where(eq(users.id, loginToken.userId)).then(rows => rows[0]);
-      
+
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
@@ -762,7 +1029,7 @@ async function startServer() {
 
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-      
+
       const user = await db.select().from(users).where(eq(users.id, decoded.userId)).then(rows => rows[0]);
       if (!user) return res.status(404).json({ error: 'User not found' });
 

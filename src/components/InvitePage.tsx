@@ -26,6 +26,15 @@ interface InvitePageProps {
 
 type Step = 'loading' | 'email' | 'verify' | 'form' | 'success' | 'error';
 
+function parseOptions(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try { const arr = JSON.parse(trimmed); if (Array.isArray(arr)) return arr.map(String); } catch { /* fall through */ }
+  }
+  return trimmed.split(',').map(o => o.trim()).filter(Boolean);
+}
+
 export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
   const [step, setStep] = useState<Step>('loading');
   const [audition, setAudition] = useState<AuditionInfo | null>(null);
@@ -39,7 +48,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
   const [verifyCode, setVerifyCode] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
 
-  const [existingPerformerId, setExistingPerformerId] = useState<number | null>(null);
+  const [existingUserId, setExistingUserId] = useState<number | null>(null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
@@ -97,14 +106,14 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      if (data.performer) {
-        setExistingPerformerId(data.performer.id);
-        setFirstName(data.performer.firstName);
-        setLastName(data.performer.lastName);
-        setPhone(data.performer.phone || '');
-        if (data.performer.customFieldValues) {
+      if (data.user) {
+        setExistingUserId(data.user.id);
+        setFirstName(data.user.firstName);
+        setLastName(data.user.lastName);
+        setPhone(data.user.phone || '');
+        if (data.user.customFieldValues) {
           const cd: Record<string, any> = {};
-          for (const cfv of data.performer.customFieldValues) {
+          for (const cfv of data.user.customFieldValues) {
             const attr = customAttributes.find(a => a.id === cfv.customAttributeId);
             if (!attr) continue;
             if (attr.type === 'boolean') cd[attr.label] = cfv.value === 'true';
@@ -151,7 +160,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
   };
 
   const renderCustomField = (attr: CustomAttribute) => {
-    const options = attr.options ? attr.options.split(',').map(o => o.trim()).filter(Boolean) : [];
+    const options = parseOptions(attr.options);
     const value = customData[attr.label];
 
     switch (attr.type) {
@@ -257,7 +266,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
           <h2 className="text-2xl font-bold mb-4">You're all set!</h2>
           <p className="text-gray-600 leading-relaxed">
             Your information has been submitted for <strong>{audition?.title}</strong>.
-            {existingPerformerId ? ' Your profile has been updated.' : ' You have been registered as a new vocalist.'}
+            {existingUserId ? ' Your profile has been updated.' : ' You have been registered as a new applicant.'}
           </p>
         </motion.div>
       </div>
@@ -338,7 +347,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
 
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {existingPerformerId && (
+            {existingUserId && (
               <div className="p-3 bg-[#EEF2FF] text-[#4F46E5] rounded-xl text-sm font-medium text-center">
                 Welcome back! Your information has been pre-filled. Review and update as needed.
               </div>
