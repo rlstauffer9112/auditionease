@@ -22,7 +22,8 @@ import {
   Trash2,
   Undo2,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  LayoutDashboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -30,8 +31,11 @@ import { AuthPage } from './components/AuthPage';
 import { VerifyPage } from './components/VerifyPage';
 import { LandingPage } from './components/LandingPage';
 import { InvitePage } from './components/InvitePage';
-import { Link2, Copy, Check, FileBarChart, Play, Filter, Download } from 'lucide-react';
-import { LogOut } from 'lucide-react';
+import { Dashboard } from './components/Dashboard';
+import { CheckoutModal } from './components/CheckoutModal';
+import { Link2, Copy, Check, FileBarChart, Play, Filter, Download, CreditCard } from 'lucide-react';
+import { LogOut, ShieldCheck } from 'lucide-react';
+import { AdminPage } from './components/AdminPage';
 
 // --- Types ---
 interface CustomFieldValue {
@@ -143,15 +147,16 @@ function generateInviteCode(): string {
 }
 
 function AppContent() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, loginWithToken } = useAuth();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
-  const [activeTab, setActiveTab] = useState<'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings'>('auditions');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings' | 'admin'>('dashboard');
   const [auditions, setAuditions] = useState<Audition[]>([]);
   const [customAttributes, setCustomAttributes] = useState<CustomAttribute[]>([]);
   const [selectedAudition, setSelectedAudition] = useState<Audition | null>(null);
   const [slots, setSlots] = useState<AuditionSlot[]>([]);
   const [auditionUsersMap, setAuditionUsersMap] = useState<Map<number, AuditionUser[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [myAuditions, setMyAuditions] = useState<any[]>([]);
 
   // Form states
   const [showAddAudition, setShowAddAudition] = useState(false);
@@ -162,7 +167,7 @@ function AppContent() {
   const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string });
 
   // Settings states
-  const [setupTab, setSetupTab] = useState<'general' | 'attributes'>('general');
+  const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'billing'>('general');
   const [newAttr, setNewAttr] = useState({ label: '', type: 'text' as any, options: '', required: false });
 
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
@@ -199,6 +204,26 @@ function AppContent() {
   const [reportResults, setReportResults] = useState<{ reportName: string; columns: ReportColumn[]; rows: Record<string, any>[] } | null>(null);
   const [runningReportId, setRunningReportId] = useState<number | null>(null);
 
+  const [checkoutPlan, setCheckoutPlan] = useState<'business' | 'enterprise' | null>(null);
+
+  // Name editing state
+  const [editingName, setEditingName] = useState(false);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [nameLoading, setNameLoading] = useState(false);
+
+  // Email change state
+  const [showEmailChange, setShowEmailChange] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChangeCode, setEmailChangeCode] = useState('');
+  const [emailChangeStep, setEmailChangeStep] = useState<'input' | 'verify'>('input');
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false);
+  const [emailChangeError, setEmailChangeError] = useState('');
+
+  // Subscription state
+  const [currentSubscription, setCurrentSubscription] = useState<any>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+
   const navigateToLogin = () => {
     window.history.pushState({}, '', '/login');
     setCurrentPath('/login');
@@ -207,6 +232,15 @@ function AppContent() {
   const navigateToHome = () => {
     window.history.pushState({}, '', '/');
     setCurrentPath('/');
+  };
+
+  const handleSelectPlan = (plan: 'business' | 'enterprise') => {
+    if (!user) {
+      localStorage.setItem('pendingPlan', plan);
+      navigateToLogin();
+    } else {
+      setCheckoutPlan(plan);
+    }
   };
 
   const authFetch = (url: string, opts: RequestInit = {}) => {
@@ -229,7 +263,14 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchData();
+    if (user) {
+      fetchData();
+      const pendingPlan = localStorage.getItem('pendingPlan');
+      if (pendingPlan === 'business' || pendingPlan === 'enterprise') {
+        localStorage.removeItem('pendingPlan');
+        setCheckoutPlan(pendingPlan);
+      }
+    }
   }, [user]);
 
   if (authLoading) {
@@ -253,21 +294,39 @@ function AppContent() {
     if (currentPath === '/login') {
       return <AuthPage onBack={navigateToHome} />;
     }
-    return <LandingPage onGetStarted={navigateToLogin} />;
+    return (
+      <>
+        <LandingPage onGetStarted={navigateToLogin} onSelectPlan={handleSelectPlan} />
+        {checkoutPlan && (
+          <CheckoutModal
+            plan={checkoutPlan}
+            onClose={() => setCheckoutPlan(null)}
+            onSuccess={() => {
+              setCheckoutPlan(null);
+              navigateToLogin();
+            }}
+          />
+        )}
+      </>
+    );
   }
+
 
   async function fetchData() {
     setLoading(true);
     try {
-      const [audRes, attrRes, repRes] = await Promise.all([
+      const [audRes, myAudRes, attrRes, repRes] = await Promise.all([
         authFetch('/api/auditions'),
+        authFetch('/api/my-auditions'),
         authFetch('/api/custom-attributes'),
         authFetch('/api/reports')
       ]);
       const audData = await audRes.json();
+      const myAudData = await myAudRes.json();
       const attrData = await attrRes.json();
       const repData = await repRes.json();
       setAuditions(audData);
+      setMyAuditions(myAudData);
       setCustomAttributes(attrData);
       setReportsList(repData.map((r: any) => ({
         ...r,
@@ -714,7 +773,7 @@ function AppContent() {
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
       {/* Sidebar */}
       <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10">
-        <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('auditions'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
+        <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
           <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
             <Music size={24} />
           </div>
@@ -722,6 +781,13 @@ function AppContent() {
         </a>
 
         <nav className="flex flex-col gap-2">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
+          >
+            <LayoutDashboard size={20} />
+            <span className="font-medium">Dashboard</span>
+          </button>
           <button
             onClick={() => setActiveTab('auditions')}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'auditions' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
@@ -754,9 +820,18 @@ function AppContent() {
             onClick={() => setActiveTab('settings')}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
           >
-            <ClipboardList size={20} />
-            <span className="font-medium">Setup</span>
+            <Settings size={20} />
+            <span className="font-medium">Settings</span>
           </button>
+          {user.id === 10 && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
+            >
+              <ShieldCheck size={20} />
+              <span className="font-medium">Admin</span>
+            </button>
+          )}
         </nav>
 
         <div className="mt-auto space-y-4">
@@ -785,6 +860,18 @@ function AppContent() {
       {/* Main Content */}
       <main className="ml-64 p-10">
         <AnimatePresence mode="wait">
+          {activeTab === 'dashboard' && (
+            <Dashboard
+              ownedAuditions={auditions}
+              myAuditions={myAuditions}
+              authFetch={authFetch}
+              onNavigate={(tab) => setActiveTab(tab as any)}
+              onSelectAudition={(audition) => { setActiveTab('auditions'); handleSelectAudition(audition); }}
+              onCreateAudition={() => { setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open' }); setEditingAudition(null); setShowAddAudition(true); }}
+              onRefresh={fetchData}
+            />
+          )}
+
           {activeTab === 'auditions' && (
             <motion.div
               key="auditions"
@@ -795,7 +882,7 @@ function AppContent() {
             >
               <div className="flex justify-between items-center mb-10">
                 <div>
-                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Choir Auditions</h2>
+                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Auditions</h2>
                   <p className="text-[#6B7280]">Schedule slots, track applicants, and manage section placement.</p>
                 </div>
                 <button
@@ -1010,22 +1097,34 @@ function AppContent() {
                               <div key={slot.id} className={`flex items-center justify-between p-4 rounded-2xl border ${slot.status === 'closed' ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60' : 'bg-[#F9FAFB] border-[#F3F4F6]'}`}>
                                 <div className="flex items-center gap-6">
                                   {!slot.userId && (
-                                    <label className="flex items-center cursor-pointer" title={slot.status === 'closed' ? 'Re-open slot' : 'Close slot'}>
-                                      <input
-                                        type="checkbox"
-                                        checked={slot.status !== 'closed'}
-                                        onChange={async () => {
-                                          const newStatus = slot.status === 'closed' ? 'available' : 'closed';
-                                          await authFetch(`/api/slots/${slot.id}`, {
-                                            method: 'PATCH',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ status: newStatus })
-                                          });
+                                    <div className="flex items-center gap-1">
+                                      <label className="flex items-center cursor-pointer" title={slot.status === 'closed' ? 'Re-open slot' : 'Close slot'}>
+                                        <input
+                                          type="checkbox"
+                                          checked={slot.status !== 'closed'}
+                                          onChange={async () => {
+                                            const newStatus = slot.status === 'closed' ? 'available' : 'closed';
+                                            await authFetch(`/api/slots/${slot.id}`, {
+                                              method: 'PATCH',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ status: newStatus })
+                                            });
+                                            if (selectedAudition) fetchSlots(selectedAudition.id);
+                                          }}
+                                          className="w-4 h-4 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                                        />
+                                      </label>
+                                      <button
+                                        onClick={async () => {
+                                          await authFetch(`/api/slots/${slot.id}`, { method: 'DELETE' });
                                           if (selectedAudition) fetchSlots(selectedAudition.id);
                                         }}
-                                        className="w-4 h-4 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
-                                      />
-                                    </label>
+                                        className="p-1 text-[#D1D5DB] hover:text-[#EF4444] transition-colors"
+                                        title="Delete slot"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
                                   )}
                                   <div className="text-sm font-bold bg-white px-3 py-1.5 rounded-lg border border-[#E5E7EB] shadow-sm">
                                     {slot.startTime} - {slot.endTime}
@@ -1060,17 +1159,33 @@ function AppContent() {
                                     </select>
                                   )}
                                   {slot.status === 'booked' && (
-                                    <button
-                                      onClick={() => {
-                                        setEvaluatingSlotId(slot.id);
-                                        setEvalScore('');
-                                        setEvalFeedback('');
-                                        setEvalPass(false);
-                                      }}
-                                      className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
-                                    >
-                                      Evaluate
-                                    </button>
+                                    <>
+                                      <button
+                                        onClick={async () => {
+                                          await authFetch(`/api/slots/${slot.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ userId: null, status: 'available' })
+                                          });
+                                          if (selectedAudition) fetchSlots(selectedAudition.id);
+                                        }}
+                                        className="p-1.5 text-[#D1D5DB] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                                        title="Clear assignment"
+                                      >
+                                        <XCircle size={18} />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEvaluatingSlotId(slot.id);
+                                          setEvalScore('');
+                                          setEvalFeedback('');
+                                          setEvalPass(false);
+                                        }}
+                                        className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
+                                      >
+                                        Evaluate
+                                      </button>
+                                    </>
                                   )}
                                   {slot.status === 'completed' && (
                                     <div className="flex items-center gap-4">
@@ -1364,7 +1479,7 @@ function AppContent() {
               className="max-w-5xl mx-auto"
             >
               <div className="mb-8">
-                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Setup</h2>
+                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Settings</h2>
                 <p className="text-[#6B7280]">Configure your AuditionEase account settings.</p>
               </div>
 
@@ -1383,14 +1498,219 @@ function AppContent() {
                   <ClipboardList size={16} />
                   Applicant Attributes
                 </button>
+                <button
+                  onClick={() => {
+                    setSetupTab('billing');
+                    setSubscriptionLoading(true);
+                    authFetch('/api/subscription')
+                      .then(r => r.json())
+                      .then(data => setCurrentSubscription(data.subscription))
+                      .catch(() => {})
+                      .finally(() => setSubscriptionLoading(false));
+                  }}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'billing' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                >
+                  <CreditCard size={16} />
+                  Billing
+                </button>
               </div>
 
               {setupTab === 'general' && (
                 <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
-                  <div className="text-center py-12 text-[#6B7280]">
-                    <Settings size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
-                    <h3 className="text-lg font-bold text-[#374151] mb-2">General Settings</h3>
-                    <p className="text-sm">Account-level settings will appear here.</p>
+                  <h3 className="text-lg font-bold text-[#374151] mb-6">Account</h3>
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Name</label>
+                      {!editingName ? (
+                        <div className="flex items-center gap-3">
+                          <p className="text-[#111827] font-medium">{user.firstName} {user.lastName}</p>
+                          <button
+                            onClick={() => { setEditingName(true); setEditFirstName(user.firstName); setEditLastName(user.lastName); }}
+                            className="text-sm text-[#4F46E5] font-bold hover:underline"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-2 p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] space-y-3">
+                          <div className="flex gap-3">
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">First Name</label>
+                              <input
+                                type="text"
+                                value={editFirstName}
+                                onChange={e => setEditFirstName(e.target.value)}
+                                className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Last Name</label>
+                              <input
+                                type="text"
+                                value={editLastName}
+                                onChange={e => setEditLastName(e.target.value)}
+                                className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={nameLoading || !editFirstName.trim() || !editLastName.trim()}
+                              onClick={async () => {
+                                setNameLoading(true);
+                                try {
+                                  const res = await authFetch('/api/auth/profile', {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ firstName: editFirstName.trim(), lastName: editLastName.trim() }),
+                                  });
+                                  if (!res.ok) throw new Error('Failed to update');
+                                  const updatedUser = await res.json();
+                                  const token = localStorage.getItem('sessionToken')!;
+                                  loginWithToken(token, { id: updatedUser.id, firstName: updatedUser.firstName, lastName: updatedUser.lastName, email: updatedUser.email });
+                                  setEditingName(false);
+                                } catch (err) {
+                                  console.error(err);
+                                } finally {
+                                  setNameLoading(false);
+                                }
+                              }}
+                              className="bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50 transition-colors"
+                            >
+                              {nameLoading ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => setEditingName(false)}
+                              className="px-5 py-2.5 rounded-xl text-sm font-bold text-[#6B7280] hover:bg-[#F3F4F6] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Email</label>
+                      <div className="flex items-center gap-3">
+                        <p className="text-[#111827] font-medium">{user.email}</p>
+                        {!showEmailChange && (
+                          <button
+                            onClick={() => { setShowEmailChange(true); setNewEmail(''); setEmailChangeCode(''); setEmailChangeStep('input'); setEmailChangeError(''); }}
+                            className="text-sm text-[#4F46E5] font-bold hover:underline"
+                          >
+                            Change
+                          </button>
+                        )}
+                      </div>
+                      {showEmailChange && (
+                        <div className="mt-4 p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
+                          {emailChangeStep === 'input' && (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">New Email Address</label>
+                                <input
+                                  type="email"
+                                  value={newEmail}
+                                  onChange={e => setNewEmail(e.target.value)}
+                                  className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                                  placeholder="Enter new email address"
+                                />
+                              </div>
+                              {emailChangeError && <p className="text-sm text-red-500">{emailChangeError}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  disabled={emailChangeLoading || !newEmail}
+                                  onClick={async () => {
+                                    setEmailChangeLoading(true);
+                                    setEmailChangeError('');
+                                    try {
+                                      const res = await authFetch('/api/auth/request-email-change', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ newEmail }),
+                                      });
+                                      if (!res.ok) {
+                                        const err = await res.json();
+                                        throw new Error(err.error);
+                                      }
+                                      setEmailChangeStep('verify');
+                                    } catch (err: any) {
+                                      setEmailChangeError(err.message);
+                                    } finally {
+                                      setEmailChangeLoading(false);
+                                    }
+                                  }}
+                                  className="bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50 transition-colors"
+                                >
+                                  {emailChangeLoading ? 'Sending...' : 'Send Verification Code'}
+                                </button>
+                                <button
+                                  onClick={() => setShowEmailChange(false)}
+                                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-[#6B7280] hover:bg-[#F3F4F6] transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {emailChangeStep === 'verify' && (
+                            <div className="space-y-3">
+                              <p className="text-sm text-[#374151]">
+                                A verification code has been sent to <span className="font-bold">{newEmail}</span>.
+                              </p>
+                              <div>
+                                <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Verification Code</label>
+                                <input
+                                  type="text"
+                                  value={emailChangeCode}
+                                  onChange={e => setEmailChangeCode(e.target.value)}
+                                  className="w-full max-w-xs border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm tracking-widest focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                                  placeholder="000000"
+                                  maxLength={6}
+                                />
+                              </div>
+                              {emailChangeError && <p className="text-sm text-red-500">{emailChangeError}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  disabled={emailChangeLoading || emailChangeCode.length !== 6}
+                                  onClick={async () => {
+                                    setEmailChangeLoading(true);
+                                    setEmailChangeError('');
+                                    try {
+                                      const res = await authFetch('/api/auth/verify-email-change', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ newEmail, code: emailChangeCode }),
+                                      });
+                                      if (!res.ok) {
+                                        const err = await res.json();
+                                        throw new Error(err.error);
+                                      }
+                                      const { user: updatedUser, sessionToken } = await res.json();
+                                      localStorage.setItem('sessionToken', sessionToken);
+                                      window.location.reload();
+                                    } catch (err: any) {
+                                      setEmailChangeError(err.message);
+                                    } finally {
+                                      setEmailChangeLoading(false);
+                                    }
+                                  }}
+                                  className="bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50 transition-colors"
+                                >
+                                  {emailChangeLoading ? 'Verifying...' : 'Verify & Update Email'}
+                                </button>
+                                <button
+                                  onClick={() => setShowEmailChange(false)}
+                                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-[#6B7280] hover:bg-[#F3F4F6] transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1498,6 +1818,111 @@ function AppContent() {
                         </div>
                       ))
                     )}
+                  </div>
+                </div>
+              )}
+
+              {setupTab === 'billing' && (
+                <div className="space-y-8">
+                  <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
+                    <h3 className="text-lg font-bold text-[#374151] mb-6">Current Plan</h3>
+                    {subscriptionLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="w-6 h-6 text-[#4F46E5] animate-spin" />
+                      </div>
+                    ) : currentSubscription ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white ${currentSubscription.plan === 'enterprise' ? 'bg-[#1A1A1A]' : 'bg-[#4F46E5]'}`}>
+                            <CreditCard size={24} />
+                          </div>
+                          <div>
+                            <p className="text-xl font-bold text-[#111827] capitalize">{currentSubscription.plan}</p>
+                            <p className="text-sm text-[#6B7280]">
+                              ${parseFloat(currentSubscription.amount).toFixed(2)}/month
+                              <span className="mx-2">·</span>
+                              Renews {new Date(currentSubscription.endDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <span className="ml-auto px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-green-50 text-green-600 border border-green-100">
+                            {currentSubscription.status}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[#E0E7FF] text-[#4F46E5]">
+                          <CreditCard size={24} />
+                        </div>
+                        <div>
+                          <p className="text-xl font-bold text-[#111827]">Personal</p>
+                          <p className="text-sm text-[#6B7280]">Free plan — up to 3 saved auditions, 10 participants each</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-bold text-[#374151] mb-4">
+                      {currentSubscription ? 'Change Plan' : 'Upgrade'}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Personal */}
+                      <div className={`p-6 rounded-2xl border-2 ${!currentSubscription ? 'border-[#4F46E5] bg-[#EEF2FF]' : 'border-[#E5E7EB] bg-white'}`}>
+                        <h4 className="text-lg font-bold mb-1">Personal</h4>
+                        <p className="text-2xl font-black mb-3">Free</p>
+                        <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to 3 Saved Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> 10 Participants per Audition</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Email Support</li>
+                        </ul>
+                        {!currentSubscription ? (
+                          <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
+                        ) : (
+                          <span className="block text-center text-sm text-[#9CA3AF]">Contact support to downgrade</span>
+                        )}
+                      </div>
+                      {/* Business */}
+                      <div className={`p-6 rounded-2xl border-2 ${currentSubscription?.plan === 'business' ? 'border-[#4F46E5] bg-[#EEF2FF]' : 'border-[#E5E7EB] bg-white'}`}>
+                        <h4 className="text-lg font-bold mb-1">Business</h4>
+                        <p className="text-2xl font-black mb-3">$19.95<span className="text-sm font-normal text-[#6B7280]">/mo</span></p>
+                        <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to 50 Saved Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> 200 Participants per Audition</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Priority Support</li>
+                        </ul>
+                        {currentSubscription?.plan === 'business' ? (
+                          <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
+                        ) : (
+                          <button
+                            onClick={() => setCheckoutPlan('business')}
+                            className="w-full py-2.5 rounded-xl bg-[#4F46E5] text-white text-sm font-bold hover:bg-[#4338CA] transition-colors"
+                          >
+                            {currentSubscription ? 'Switch to Business' : 'Upgrade to Business'}
+                          </button>
+                        )}
+                      </div>
+                      {/* Enterprise */}
+                      <div className={`p-6 rounded-2xl border-2 ${currentSubscription?.plan === 'enterprise' ? 'border-[#1A1A1A] bg-gray-50' : 'border-[#E5E7EB] bg-white'}`}>
+                        <h4 className="text-lg font-bold mb-1">Enterprise</h4>
+                        <p className="text-2xl font-black mb-3">$49.95<span className="text-sm font-normal text-[#6B7280]">/mo</span></p>
+                        <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Unlimited Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Unlimited Participants</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Divisions & Dedicated Support</li>
+                        </ul>
+                        {currentSubscription?.plan === 'enterprise' ? (
+                          <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
+                        ) : (
+                          <button
+                            onClick={() => setCheckoutPlan('enterprise')}
+                            className="w-full py-2.5 rounded-xl bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black transition-colors"
+                          >
+                            {currentSubscription ? 'Switch to Enterprise' : 'Upgrade to Enterprise'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1920,6 +2345,10 @@ function AppContent() {
               )}
             </motion.div>
           )}
+
+          {activeTab === 'admin' && user.id === 10 && (
+            <AdminPage authFetch={authFetch} />
+          )}
         </AnimatePresence>
       </main>
 
@@ -2252,20 +2681,18 @@ function AppContent() {
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
           >
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#EEF2FF] text-[#4F46E5] rounded-2xl flex items-center justify-center font-bold text-xl">
+            <div className="flex justify-between items-start gap-3 mb-6">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-12 h-12 bg-[#EEF2FF] text-[#4F46E5] rounded-2xl flex items-center justify-center font-bold text-xl shrink-0">
                   {(editingUserDetails ? editUserForm.firstName : showUserDetails.firstName).charAt(0) || '?'}
                 </div>
-                <div>
-                  <h3 className="text-2xl font-bold">
-                    {editingUserDetails ? `${editUserForm.firstName} ${editUserForm.lastName}` : `${showUserDetails.firstName} ${showUserDetails.lastName}`}
-                  </h3>
-                </div>
+                <h3 className="text-2xl font-bold truncate">
+                  {editingUserDetails ? `${editUserForm.firstName} ${editUserForm.lastName}` : `${showUserDetails.firstName} ${showUserDetails.lastName}`}
+                </h3>
               </div>
               <button
                 onClick={() => { setShowUserDetails(null); setEditingUserDetails(false); }}
-                className="text-[#6B7280] hover:text-[#111827]"
+                className="text-[#6B7280] hover:text-[#111827] shrink-0"
               >
                 <XCircle size={24} />
               </button>
@@ -2274,7 +2701,7 @@ function AppContent() {
             {!editingUserDetails ? (
               <>
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-4">
                     <div>
                       <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Email</p>
                       <p className="font-medium">{showUserDetails.email}</p>
@@ -2567,6 +2994,17 @@ function AppContent() {
             </div>
           </motion.div>
         </div>
+      )}
+
+      {checkoutPlan && (
+        <CheckoutModal
+          plan={checkoutPlan}
+          onClose={() => setCheckoutPlan(null)}
+          onSuccess={() => {
+            setCheckoutPlan(null);
+            window.location.href = '/?subscription=success';
+          }}
+        />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Loader2, CheckCircle, ArrowRight, Mic2 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface CustomAttribute {
   id: number;
@@ -36,6 +37,7 @@ function parseOptions(raw: string | null | undefined): string[] {
 }
 
 export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
+  const { loginWithToken } = useAuth();
   const [step, setStep] = useState<Step>('loading');
   const [audition, setAudition] = useState<AuditionInfo | null>(null);
   const [customAttributes, setCustomAttributes] = useState<CustomAttribute[]>([]);
@@ -151,6 +153,9 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      if (data.sessionToken && data.user) {
+        loginWithToken(data.sessionToken, data.user);
+      }
       setStep('success');
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -264,10 +269,16 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
           <h2 className="text-2xl font-bold mb-4">You're all set!</h2>
-          <p className="text-gray-600 leading-relaxed">
+          <p className="text-gray-600 leading-relaxed mb-6">
             Your information has been submitted for <strong>{audition?.title}</strong>.
             {existingUserId ? ' Your profile has been updated.' : ' You have been registered as a new applicant.'}
           </p>
+          <button
+            onClick={() => { window.location.href = '/'; }}
+            className="w-full bg-[#4F46E5] text-white rounded-2xl py-4 font-black uppercase tracking-widest text-sm flex items-center justify-center gap-3 hover:bg-[#4338CA] transition-all shadow-lg shadow-indigo-100"
+          >
+            Go to My Dashboard <ArrowRight className="w-5 h-5" />
+          </button>
         </motion.div>
       </div>
     );

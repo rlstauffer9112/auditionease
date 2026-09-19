@@ -13,6 +13,7 @@ interface AuthContextType {
   login: (email: string) => Promise<void>;
   register: (firstName: string, lastName: string, email: string) => Promise<void>;
   verifyToken: (token: string) => Promise<void>;
+  loginWithToken: (sessionToken: string, userData: User) => void;
   logout: () => void;
 }
 
@@ -83,13 +84,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(user);
   };
 
+  const loginWithToken = (sessionToken: string, userData: User) => {
+    localStorage.setItem('sessionToken', sessionToken);
+    setUser(userData);
+  };
+
   const logout = () => {
     localStorage.removeItem('sessionToken');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, verifyToken, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, verifyToken, loginWithToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -15,9 +15,10 @@ import {
 
 interface LandingPageProps {
   onGetStarted: () => void;
+  onSelectPlan?: (plan: 'business' | 'enterprise') => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelectPlan }) => {
   return (
     <div className="min-h-screen bg-[#E0E7FF] text-[#1A1A1A] font-sans selection:bg-[#4F46E5] selection:text-white">
       {/* Navigation */}
@@ -223,24 +224,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            {/* Free Plan */}
-            <motion.div 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto items-stretch">
+            {/* Personal Plan */}
+            <motion.div
               whileHover={{ y: -10 }}
               className="p-10 rounded-[40px] bg-[#E0E7FF] border border-indigo-100 flex flex-col shadow-sm"
             >
               <div className="mb-8">
-                <h3 className="text-2xl font-bold mb-2 text-[#1A1A1A]">Free</h3>
+                <h3 className="text-2xl font-bold mb-2 text-[#1A1A1A]">Personal</h3>
                 <p className="text-gray-400 text-sm uppercase tracking-widest font-bold">For Small Groups</p>
               </div>
               <div className="mb-8">
-                <span className="text-5xl font-black text-[#1A1A1A]">$0</span>
-                <span className="text-gray-400 ml-2">/month</span>
+                <span className="text-5xl font-black text-[#1A1A1A]">Free</span>
               </div>
               <ul className="space-y-4 mb-10 flex-grow">
                 {[
-                  "Up to 10 Applicants",
-                  "Unlimited Auditions",
+                  "Up to 3 Saved Auditions",
+                  "Up to 10 Participants per Audition",
                   "Smart Scheduling",
                   "Basic Applicant Profiles",
                   "Email Support"
@@ -251,7 +251,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   </li>
                 ))}
               </ul>
-              <button 
+              <button
                 onClick={onGetStarted}
                 className="w-full py-4 rounded-2xl border border-indigo-100 font-bold hover:bg-indigo-50 transition-all text-[#4F46E5]"
               >
@@ -259,15 +259,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               </button>
             </motion.div>
 
-            {/* Paid Plan */}
-            <motion.div 
+            {/* Business Plan */}
+            <motion.div
               whileHover={{ y: -10 }}
               className="p-10 rounded-[40px] bg-[#4F46E5] border border-[#4F46E5] flex flex-col relative overflow-hidden shadow-2xl shadow-indigo-200"
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-[40px] rounded-full -mr-16 -mt-16" />
-              
+              <div className="absolute top-6 right-8 bg-white/20 text-white text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full z-10">
+                Popular
+              </div>
+
               <div className="mb-8 relative z-10">
-                <h3 className="text-2xl font-bold mb-2 text-white">Pro</h3>
+                <h3 className="text-2xl font-bold mb-2 text-white">Business</h3>
                 <p className="text-white/80 text-sm uppercase tracking-widest font-bold">For Professional Teams</p>
               </div>
               <div className="mb-8 relative z-10">
@@ -276,8 +279,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               </div>
               <ul className="space-y-4 mb-10 flex-grow relative z-10">
                 {[
-                  "Unlimited Applicants",
-                  "Unlimited Auditions",
+                  "Up to 50 Saved Auditions",
+                  "Up to 200 Participants per Audition",
                   "Advanced Placement Pipeline",
                   "Custom Attributes",
                   "Priority Support",
@@ -289,11 +292,50 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   </li>
                 ))}
               </ul>
-              <button 
-                onClick={onGetStarted}
+              <button
+                onClick={() => onSelectPlan ? onSelectPlan('business') : onGetStarted()}
                 className="w-full py-4 rounded-2xl bg-white text-[#4F46E5] font-bold hover:bg-white/90 transition-all shadow-xl relative z-10"
               >
-                Go Pro Now
+                Get Started
+              </button>
+            </motion.div>
+
+            {/* Enterprise Plan */}
+            <motion.div
+              whileHover={{ y: -10 }}
+              className="p-10 rounded-[40px] bg-[#1A1A1A] border border-gray-800 flex flex-col relative overflow-hidden shadow-2xl shadow-gray-300"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#4F46E5]/20 blur-[40px] rounded-full -mr-16 -mt-16" />
+
+              <div className="mb-8 relative z-10">
+                <h3 className="text-2xl font-bold mb-2 text-white">Enterprise</h3>
+                <p className="text-gray-400 text-sm uppercase tracking-widest font-bold">For Large Organizations</p>
+              </div>
+              <div className="mb-8 relative z-10">
+                <span className="text-5xl font-black text-white">$49.95</span>
+                <span className="text-gray-400 ml-2">/month</span>
+              </div>
+              <ul className="space-y-4 mb-10 flex-grow relative z-10">
+                {[
+                  "Unlimited Auditions",
+                  "Unlimited Participants",
+                  "Divisions to Organize Auditions",
+                  "Advanced Placement Pipeline",
+                  "Custom Attributes",
+                  "Dedicated Support",
+                  "Data Export"
+                ].map((feature, i) => (
+                  <li key={i} className="flex items-center gap-3 text-gray-300">
+                    <CheckCircle2 size={18} className="text-[#4F46E5]" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => onSelectPlan ? onSelectPlan('enterprise') : onGetStarted()}
+                className="w-full py-4 rounded-2xl bg-[#4F46E5] text-white font-bold hover:bg-[#4338CA] transition-all shadow-xl relative z-10"
+              >
+                Get Started
               </button>
             </motion.div>
           </div>

@@ -2,17 +2,21 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports } from './src/db/schema';
+import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions } from './src/db/schema';
 import { eq, and, or, asc, gt, lte, desc, sql, inArray } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import Stripe from 'stripe';
 
 const client = new BrevoClient({ apiKey: process.env.BREVO_API_KEY || '' });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 
 const UNAMBIGUOUS_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function generateInviteCode(): string {
@@ -24,8 +28,85 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
   app.use(cors());
+
+  // Stripe webhook needs raw body — must be before express.json()
+  app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'] as string, STRIPE_WEBHOOK_SECRET);
+    } catch (err: any) {
+      console.error('Webhook signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object as any;
+          const userId = parseInt(session.metadata?.userId || '0');
+          const plan = session.metadata?.plan as 'business' | 'enterprise';
+          const amount = session.metadata?.amount || '0';
+
+          if (userId && session.subscription) {
+            const sub = await stripe.subscriptions.retrieve(session.subscription as string) as any;
+            await db.insert(subscriptions).values({
+              userId,
+              stripeSubscriptionId: sub.id,
+              plan,
+              amount,
+              status: 'active',
+              endDate: new Date(sub.current_period_end * 1000),
+            });
+
+            if (session.customer) {
+              await db.update(users)
+                .set({ stripeCustomerId: session.customer as string })
+                .where(eq(users.id, userId));
+            }
+          }
+          break;
+        }
+        case 'invoice.paid': {
+          const invoice = event.data.object as any;
+          if (invoice.subscription) {
+            const sub = await stripe.subscriptions.retrieve(invoice.subscription as string) as any;
+            await db.update(subscriptions)
+              .set({
+                status: 'active',
+                endDate: new Date(sub.current_period_end * 1000),
+                amount: (invoice.amount_paid / 100).toFixed(2),
+              })
+              .where(eq(subscriptions.stripeSubscriptionId, sub.id));
+          }
+          break;
+        }
+        case 'customer.subscription.updated': {
+          const sub = event.data.object as any;
+          await db.update(subscriptions)
+            .set({
+              status: sub.status === 'active' ? 'active' : sub.status === 'past_due' ? 'past_due' : 'canceled',
+              endDate: new Date(sub.current_period_end * 1000),
+            })
+            .where(eq(subscriptions.stripeSubscriptionId, sub.id));
+          break;
+        }
+        case 'customer.subscription.deleted': {
+          const sub = event.data.object as any;
+          await db.update(subscriptions)
+            .set({ status: 'canceled' })
+            .where(eq(subscriptions.stripeSubscriptionId, sub.id));
+          break;
+        }
+      }
+    } catch (err) {
+      console.error('Webhook handler error:', err);
+    }
+
+    res.json({ received: true });
+  });
+
+  app.use(express.json());
 
   // --- Auth Helper ---
   const getUserIdFromRequest = (req: express.Request): number | null => {
@@ -48,6 +129,75 @@ async function startServer() {
   };
 
   // --- API Routes ---
+
+  // Admin Stats (restricted to user id 10)
+  app.get('/api/admin/stats', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (userId !== 10) return res.status(403).json({ error: 'Forbidden' });
+
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const [
+        totalUsersResult,
+        totalAuditionsResult,
+        totalSubscriptionsResult,
+        totalSlotsResult,
+        bookedSlotsResult,
+        completedSlotsResult,
+        totalCallbacksResult,
+        acceptedCallbacksResult,
+        rejectedCallbacksResult,
+        pendingCallbacksResult,
+        totalInviteSignupsResult,
+        subscriptionsByPlanResult,
+        auditionsByStatusResult,
+        recentUsersResult,
+        usersLast30Result,
+        auditionsLast30Result,
+      ] = await Promise.all([
+        db.select({ count: sql<number>`count(*)::int` }).from(users),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditions),
+        db.select({ count: sql<number>`count(*)::int` }).from(subscriptions).where(eq(subscriptions.status, 'active')),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots).where(eq(auditionSlots.status, 'booked')),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots).where(eq(auditionSlots.status, 'completed')),
+        db.select({ count: sql<number>`count(*)::int` }).from(callbacks),
+        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'accepted')),
+        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'rejected')),
+        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'pending')),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionUsers),
+        db.select({ plan: subscriptions.plan, count: sql<number>`count(*)::int` }).from(subscriptions).where(eq(subscriptions.status, 'active')).groupBy(subscriptions.plan),
+        db.select({ status: auditions.status, count: sql<number>`count(*)::int` }).from(auditions).groupBy(auditions.status),
+        db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email, createdAt: users.createdAt }).from(users).orderBy(desc(users.id)).limit(20),
+        db.select({ count: sql<number>`count(*)::int` }).from(users).where(gt(users.createdAt, thirtyDaysAgo)),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditions).where(gt(auditions.createdAt, thirtyDaysAgo)),
+      ]);
+
+      res.json({
+        totalUsers: totalUsersResult[0].count,
+        totalAuditions: totalAuditionsResult[0].count,
+        totalSubscriptions: totalSubscriptionsResult[0].count,
+        totalInviteSignups: totalInviteSignupsResult[0].count,
+        totalSlots: totalSlotsResult[0].count,
+        bookedSlots: bookedSlotsResult[0].count,
+        completedSlots: completedSlotsResult[0].count,
+        totalCallbacks: totalCallbacksResult[0].count,
+        acceptedCallbacks: acceptedCallbacksResult[0].count,
+        rejectedCallbacks: rejectedCallbacksResult[0].count,
+        pendingCallbacks: pendingCallbacksResult[0].count,
+        subscriptionsByPlan: subscriptionsByPlanResult,
+        auditionsByStatus: auditionsByStatusResult,
+        recentUsers: recentUsersResult,
+        usersCreatedLast30Days: usersLast30Result[0].count,
+        auditionsCreatedLast30Days: auditionsLast30Result[0].count,
+      });
+    } catch (err) {
+      console.error('Admin stats error:', err);
+      res.status(500).json({ error: 'Failed to fetch admin stats' });
+    }
+  });
 
   // User Settings
   app.get('/api/user-settings', async (req, res) => {
@@ -405,6 +555,20 @@ async function startServer() {
       res.json(updatedSlot[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to update slot' });
+    }
+  });
+
+  app.delete('/api/slots/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const slot = await db.select().from(auditionSlots).where(eq(auditionSlots.id, parseInt(req.params.id))).then(rows => rows[0]);
+      if (!slot || !slot.auditionId || !await verifyAuditionOwnership(slot.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
+      if (slot.userId) return res.status(400).json({ error: 'Cannot delete a slot that has an applicant assigned' });
+      await db.delete(auditionSlots).where(eq(auditionSlots.id, parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete slot' });
     }
   });
 
@@ -923,9 +1087,131 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true, user });
+      const sessionToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '90d' });
+      res.json({ success: true, user, sessionToken });
     } catch (err) {
       res.status(500).json({ error: 'Failed to submit information' });
+    }
+  });
+
+  // --- Applicant endpoints (authenticated, for users signed up via invite) ---
+
+  app.get('/api/my-auditions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const auRows = await db.select().from(auditionUsers)
+        .where(eq(auditionUsers.userId, userId));
+      if (auRows.length === 0) return res.json([]);
+
+      const auditionIds = auRows.map(au => au.auditionId);
+
+      const [auditionData, userSlots] = await Promise.all([
+        db.select().from(auditions).where(inArray(auditions.id, auditionIds)),
+        db.select().from(auditionSlots).where(and(
+          inArray(auditionSlots.auditionId, auditionIds),
+          eq(auditionSlots.userId, userId)
+        )),
+      ]);
+
+      const slotMap = new Map(userSlots.map(s => [s.auditionId, s]));
+
+      res.json(auditionData.map(a => ({
+        id: a.id,
+        title: a.title,
+        description: a.description,
+        date: a.date,
+        location: a.location,
+        status: a.status,
+        slot: slotMap.get(a.id) || null,
+      })));
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch auditions' });
+    }
+  });
+
+  app.get('/api/auditions/:id/available-slots', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+
+    const auRecord = await db.select().from(auditionUsers)
+      .where(and(eq(auditionUsers.auditionId, auditionId), eq(auditionUsers.userId, userId)))
+      .then(rows => rows[0]);
+    if (!auRecord) return res.status(403).json({ error: 'Not registered for this audition' });
+
+    try {
+      const slots = await db.select().from(auditionSlots)
+        .where(and(
+          eq(auditionSlots.auditionId, auditionId),
+          or(
+            eq(auditionSlots.status, 'available'),
+            and(eq(auditionSlots.userId, userId), eq(auditionSlots.status, 'booked'))
+          )
+        ));
+      res.json(slots);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch available slots' });
+    }
+  });
+
+  app.post('/api/auditions/:id/book-slot', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    const { slotId } = req.body;
+
+    const auRecord = await db.select().from(auditionUsers)
+      .where(and(eq(auditionUsers.auditionId, auditionId), eq(auditionUsers.userId, userId)))
+      .then(rows => rows[0]);
+    if (!auRecord) return res.status(403).json({ error: 'Not registered for this audition' });
+
+    try {
+      const slot = await db.select().from(auditionSlots)
+        .where(and(eq(auditionSlots.id, slotId), eq(auditionSlots.auditionId, auditionId), eq(auditionSlots.status, 'available')))
+        .then(rows => rows[0]);
+      if (!slot) return res.status(400).json({ error: 'Slot is no longer available' });
+
+      await db.update(auditionSlots)
+        .set({ userId: null, status: 'available' })
+        .where(and(
+          eq(auditionSlots.auditionId, auditionId),
+          eq(auditionSlots.userId, userId),
+          eq(auditionSlots.status, 'booked')
+        ));
+
+      const updated = await db.update(auditionSlots)
+        .set({ userId, status: 'booked' })
+        .where(eq(auditionSlots.id, slotId))
+        .returning();
+
+      res.json(updated[0]);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to book slot' });
+    }
+  });
+
+  app.post('/api/auditions/:id/cancel-slot', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+
+    const auRecord = await db.select().from(auditionUsers)
+      .where(and(eq(auditionUsers.auditionId, auditionId), eq(auditionUsers.userId, userId)))
+      .then(rows => rows[0]);
+    if (!auRecord) return res.status(403).json({ error: 'Not registered for this audition' });
+
+    try {
+      await db.update(auditionSlots)
+        .set({ userId: null, status: 'available' })
+        .where(and(
+          eq(auditionSlots.auditionId, auditionId),
+          eq(auditionSlots.userId, userId),
+          eq(auditionSlots.status, 'booked')
+        ));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to cancel slot' });
     }
   });
 
@@ -1036,6 +1322,167 @@ async function startServer() {
       res.json(user);
     } catch (err) {
       res.status(401).json({ error: 'Invalid token' });
+    }
+  });
+
+  // --- Stripe / Subscription Routes ---
+
+  app.post('/api/stripe/create-checkout-session', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { plan } = req.body;
+      const priceIdMap: Record<string, string | undefined> = {
+        business: process.env.STRIPE_BUSINESS_PRICE_ID,
+        enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID,
+      };
+      const amountMap: Record<string, string> = { business: '19.95', enterprise: '49.95' };
+
+      const priceId = priceIdMap[plan];
+      if (!priceId) return res.status(400).json({ error: 'Invalid plan' });
+
+      const user = await db.select().from(users).where(eq(users.id, userId)).then(rows => rows[0]);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      let customerId = user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`,
+          metadata: { userId: String(userId) },
+        });
+        customerId = customer.id;
+        await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode: 'subscription',
+        ui_mode: 'embedded',
+        return_url: `${APP_URL}?subscription=success`,
+        metadata: { userId: String(userId), plan, amount: amountMap[plan] },
+      });
+
+      res.json({ clientSecret: session.client_secret });
+    } catch (err) {
+      console.error('Stripe checkout error:', err);
+      res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  });
+
+  app.get('/api/subscription', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const sub = await db.select().from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+        .orderBy(desc(subscriptions.createdAt))
+        .then(rows => rows[0]);
+
+      res.json({ subscription: sub || null });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch subscription' });
+    }
+  });
+
+  // --- Profile Update Routes ---
+
+  app.patch('/api/auth/profile', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { firstName, lastName } = req.body;
+      if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
+
+      await db.update(users).set({ firstName, lastName }).where(eq(users.id, userId));
+      const updatedUser = await db.select().from(users).where(eq(users.id, userId)).then(rows => rows[0]);
+      res.json(updatedUser);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update profile' });
+    }
+  });
+
+  // --- Email Change Routes ---
+
+  app.post('/api/auth/request-email-change', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { newEmail } = req.body;
+      if (!newEmail) return res.status(400).json({ error: 'New email is required' });
+
+      const existing = await db.select().from(users).where(eq(users.email, newEmail)).then(rows => rows[0]);
+      if (existing) return res.status(400).json({ error: 'Email already in use' });
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const token = `email-change:${userId}:${newEmail}:${code}`;
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      await db.insert(loginTokens).values({ userId, token, expiresAt });
+
+      try {
+        if (process.env.BREVO_API_KEY) {
+          await client.transactionalEmails.sendTransacEmail({
+            subject: "Verify your new email - AuditionEase",
+            htmlContent: `<p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+            sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
+            to: [{ email: newEmail }],
+          });
+        } else {
+          console.log('--- EMAIL CHANGE CODE ---');
+          console.log(`Code: ${code} for ${newEmail}`);
+          console.log('-----------------------------------------');
+        }
+      } catch (emailErr) {
+        console.error('Email send failed:', emailErr);
+        console.log(`--- EMAIL CHANGE CODE: ${code} for ${newEmail} ---`);
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to request email change' });
+    }
+  });
+
+  app.post('/api/auth/verify-email-change', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { newEmail, code } = req.body;
+      const tokenValue = `email-change:${userId}:${newEmail}:${code}`;
+
+      const tokenRecord = await db.select().from(loginTokens)
+        .where(and(
+          eq(loginTokens.token, tokenValue),
+          eq(loginTokens.userId, userId),
+          eq(loginTokens.used, false),
+          gt(loginTokens.expiresAt, new Date())
+        ))
+        .then(rows => rows[0]);
+
+      if (!tokenRecord) {
+        return res.status(400).json({ error: 'Invalid or expired code' });
+      }
+
+      await db.delete(loginTokens).where(eq(loginTokens.id, tokenRecord.id));
+
+      await db.update(users).set({ email: newEmail }).where(eq(users.id, userId));
+
+      const updatedUser = await db.select().from(users).where(eq(users.id, userId)).then(rows => rows[0]);
+      const sessionToken = jwt.sign({ userId: updatedUser!.id, email: updatedUser!.email }, JWT_SECRET, { expiresIn: '90d' });
+
+      res.json({ user: updatedUser, sessionToken });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to verify email change' });
     }
   });
 

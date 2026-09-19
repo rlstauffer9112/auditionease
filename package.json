@@ -13,6 +13,8 @@
   "dependencies": {
     "@getbrevo/brevo": "^5.0.1",
     "@google/genai": "^1.29.0",
+    "@stripe/react-stripe-js": "^6.10.0",
+    "@stripe/stripe-js": "^9.16.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/jsonwebtoken": "^9.0.10",
     "@vitejs/plugin-react": "^5.0.4",
@@ -27,6 +29,7 @@
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "stripe": "^22.6.2",
     "vite": "^6.2.0",
     "zod": "^4.3.6"
   },

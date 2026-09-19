@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex, numeric } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -8,8 +8,23 @@ export const users = pgTable('users', {
   phone: text('phone'),
   notes: text('notes'),
   isTest: boolean('is_test').default(false).notNull(),
+  stripeCustomerId: text('stripe_customer_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+export const subscriptions = pgTable('subscriptions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+  plan: text('plan').$type<'personal' | 'business' | 'enterprise'>().notNull(),
+  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+  status: text('status').$type<'active' | 'canceled' | 'past_due' | 'incomplete'>().default('active').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  endDate: timestamp('end_date').notNull(),
+}, (table) => [
+  index('subscriptions_user_id_idx').on(table.userId),
+  index('subscriptions_stripe_sub_id_idx').on(table.stripeSubscriptionId),
+]);
 
 export const auditionUsers = pgTable('audition_users', {
   id: serial('id').primaryKey(),
