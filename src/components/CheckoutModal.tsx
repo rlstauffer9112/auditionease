@@ -11,10 +11,9 @@ const stripePromise = loadStripe(process.env.STRIPE_PUBLISHABLE_KEY || '');
 interface CheckoutModalProps {
   plan: 'business' | 'enterprise';
   onClose: () => void;
-  onSuccess: () => void;
 }
 
-export const CheckoutModal: React.FC<CheckoutModalProps> = ({ plan, onClose, onSuccess }) => {
+export const CheckoutModal: React.FC<CheckoutModalProps> = ({ plan, onClose }) => {
   const [error, setError] = useState<string | null>(null);
 
   const fetchClientSecret = useCallback(async () => {
@@ -34,8 +33,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ plan, onClose, onS
       throw new Error(err.error);
     }
 
-    const { clientSecret } = await res.json();
-    return clientSecret;
+    const data = await res.json();
+    return data.clientSecret;
   }, [plan]);
 
   const planNames: Record<string, string> = {
@@ -81,7 +80,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ plan, onClose, onS
           ) : (
             <EmbeddedCheckoutProvider
               stripe={stripePromise}
-              options={{ fetchClientSecret, onComplete: onSuccess }}
+              options={{ fetchClientSecret }}
             >
               <EmbeddedCheckout />
             </EmbeddedCheckoutProvider>

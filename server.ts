@@ -2,13 +2,14 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions } from './src/db/schema';
+import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions, attributeSets, attributeSetItems } from './src/db/schema';
 import { eq, and, or, asc, gt, lte, desc, sql, inArray } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import Stripe from 'stripe';
+import { getPlanLimits } from './src/planLimits';
 
 const client = new BrevoClient({ apiKey: process.env.BREVO_API_KEY || '' });
 
@@ -50,13 +51,14 @@ async function startServer() {
 
           if (userId && session.subscription) {
             const sub = await stripe.subscriptions.retrieve(session.subscription as string) as any;
+            const periodEnd = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
             await db.insert(subscriptions).values({
               userId,
               stripeSubscriptionId: sub.id,
               plan,
               amount,
               status: 'active',
-              endDate: new Date(sub.current_period_end * 1000),
+              endDate: periodEnd ? new Date(periodEnd * 1000) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             });
 
             if (session.customer) {
@@ -71,10 +73,11 @@ async function startServer() {
           const invoice = event.data.object as any;
           if (invoice.subscription) {
             const sub = await stripe.subscriptions.retrieve(invoice.subscription as string) as any;
+            const iPeriodEnd = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
             await db.update(subscriptions)
               .set({
                 status: 'active',
-                endDate: new Date(sub.current_period_end * 1000),
+                endDate: iPeriodEnd ? new Date(iPeriodEnd * 1000) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                 amount: (invoice.amount_paid / 100).toFixed(2),
               })
               .where(eq(subscriptions.stripeSubscriptionId, sub.id));
@@ -83,10 +86,11 @@ async function startServer() {
         }
         case 'customer.subscription.updated': {
           const sub = event.data.object as any;
+          const uPeriodEnd = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
           await db.update(subscriptions)
             .set({
               status: sub.status === 'active' ? 'active' : sub.status === 'past_due' ? 'past_due' : 'canceled',
-              endDate: new Date(sub.current_period_end * 1000),
+              endDate: uPeriodEnd ? new Date(uPeriodEnd * 1000) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             })
             .where(eq(subscriptions.stripeSubscriptionId, sub.id));
           break;
@@ -94,7 +98,7 @@ async function startServer() {
         case 'customer.subscription.deleted': {
           const sub = event.data.object as any;
           await db.update(subscriptions)
-            .set({ status: 'canceled' })
+            .set({ status: 'canceled', cancelledOn: new Date() })
             .where(eq(subscriptions.stripeSubscriptionId, sub.id));
           break;
         }
@@ -318,10 +322,100 @@ async function startServer() {
       const attr = await db.select().from(customAttributes).where(eq(customAttributes.id, attrId)).then(rows => rows[0]);
       if (!attr || attr.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
       await db.delete(auditionUserCustomFields).where(eq(auditionUserCustomFields.customAttributeId, attrId));
+      await db.delete(attributeSetItems).where(eq(attributeSetItems.customAttributeId, attrId));
       await db.delete(customAttributes).where(eq(customAttributes.id, attrId));
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Failed to delete custom attribute' });
+    }
+  });
+
+  // Attribute Sets
+  app.get('/api/attribute-sets', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const sets = await db.select().from(attributeSets).where(eq(attributeSets.userId, userId));
+      const allItems = sets.length > 0
+        ? await db.select().from(attributeSetItems).where(inArray(attributeSetItems.attributeSetId, sets.map(s => s.id)))
+        : [];
+      const itemsBySet = new Map<number, number[]>();
+      for (const item of allItems) {
+        let arr = itemsBySet.get(item.attributeSetId);
+        if (!arr) { arr = []; itemsBySet.set(item.attributeSetId, arr); }
+        arr.push(item.customAttributeId);
+      }
+      res.json(sets.map(s => ({ ...s, attributeIds: itemsBySet.get(s.id) || [] })));
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch attribute sets' });
+    }
+  });
+
+  app.post('/api/attribute-sets', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const { name, attributeIds } = req.body as { name: string; attributeIds: number[] };
+      if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+      const [newSet] = await db.insert(attributeSets).values({ userId, name: name.trim() }).returning();
+      if (Array.isArray(attributeIds) && attributeIds.length > 0) {
+        const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(eq(customAttributes.userId, userId));
+        const ownedIds = new Set(owned.map(r => r.id));
+        const valid = attributeIds.filter(id => ownedIds.has(id));
+        if (valid.length > 0) {
+          await db.insert(attributeSetItems).values(valid.map(attrId => ({ attributeSetId: newSet.id, customAttributeId: attrId })));
+        }
+      }
+      res.json({ ...newSet, attributeIds: attributeIds || [] });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create attribute set' });
+    }
+  });
+
+  app.patch('/api/attribute-sets/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const setId = parseInt(req.params.id);
+      const existing = await db.select().from(attributeSets).where(eq(attributeSets.id, setId)).then(rows => rows[0]);
+      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      const { name, attributeIds } = req.body as { name?: string; attributeIds?: number[] };
+      if (name !== undefined) {
+        if (!name.trim()) return res.status(400).json({ error: 'Name is required' });
+        await db.update(attributeSets).set({ name: name.trim() }).where(eq(attributeSets.id, setId));
+      }
+      if (Array.isArray(attributeIds)) {
+        await db.delete(attributeSetItems).where(eq(attributeSetItems.attributeSetId, setId));
+        if (attributeIds.length > 0) {
+          const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(eq(customAttributes.userId, userId));
+          const ownedIds = new Set(owned.map(r => r.id));
+          const valid = attributeIds.filter(id => ownedIds.has(id));
+          if (valid.length > 0) {
+            await db.insert(attributeSetItems).values(valid.map(attrId => ({ attributeSetId: setId, customAttributeId: attrId })));
+          }
+        }
+      }
+      const updated = await db.select().from(attributeSets).where(eq(attributeSets.id, setId)).then(rows => rows[0]);
+      const items = await db.select().from(attributeSetItems).where(eq(attributeSetItems.attributeSetId, setId));
+      res.json({ ...updated, attributeIds: items.map(i => i.customAttributeId) });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update attribute set' });
+    }
+  });
+
+  app.delete('/api/attribute-sets/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const setId = parseInt(req.params.id);
+      const existing = await db.select().from(attributeSets).where(eq(attributeSets.id, setId)).then(rows => rows[0]);
+      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      await db.update(auditions).set({ attributeSetId: null }).where(eq(auditions.attributeSetId, setId));
+      await db.delete(attributeSetItems).where(eq(attributeSetItems.attributeSetId, setId));
+      await db.delete(attributeSets).where(eq(attributeSets.id, setId));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete attribute set' });
     }
   });
 
@@ -441,6 +535,7 @@ async function startServer() {
           location: auditions.location,
           status: auditions.status,
           inviteCode: auditions.inviteCode,
+          attributeSetId: auditions.attributeSetId,
           createdAt: auditions.createdAt,
           userCount: sql<number>`${sql.raw("cast((select count(*) from audition_users where audition_users.audition_id = auditions.id) as int)")}`,
           openSlots: sql<number>`${sql.raw("cast((select count(*) from audition_slots where audition_slots.audition_id = auditions.id and audition_slots.status = 'available') as int)")}`,
@@ -458,7 +553,22 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const { inviteCode, ...rest } = req.body;
+      const sub = await db.select().from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+        .orderBy(desc(subscriptions.createdAt))
+        .then(rows => rows[0]);
+      const limits = getPlanLimits(sub?.plan);
+      if (limits.maxAuditions !== Infinity) {
+        const countResult = await db.select({ count: sql<number>`cast(count(*) as int)` })
+          .from(auditions).where(eq(auditions.userId, userId));
+        if (countResult[0].count >= limits.maxAuditions) {
+          return res.status(403).json({
+            error: `Your plan allows up to ${limits.maxAuditions} auditions. Please upgrade to add more.`,
+            code: 'AUDITION_LIMIT',
+          });
+        }
+      }
+      const { inviteCode, attributeSetId, ...rest } = req.body;
       const code = (inviteCode || generateInviteCode()).trim();
       if (code.length === 0 || code.length > 31) {
         return res.status(400).json({ error: 'Invite code must be between 1 and 31 characters' });
@@ -471,7 +581,8 @@ async function startServer() {
       if (existing.length > 0) {
         return res.status(409).json({ error: 'Invite code is already in use' });
       }
-      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code }).returning();
+      const setId = attributeSetId ? parseInt(attributeSetId) : null;
+      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code, attributeSetId: setId || null }).returning();
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
@@ -486,7 +597,7 @@ async function startServer() {
       return res.status(403).json({ error: 'Not authorized' });
     }
     try {
-      const { title, description, date, location, status, inviteCode } = req.body;
+      const { title, description, date, location, status, inviteCode, attributeSetId } = req.body;
       if (inviteCode !== undefined) {
         const code = inviteCode.trim();
         if (code.length === 0 || code.length > 31) {
@@ -508,10 +619,35 @@ async function startServer() {
       if (location !== undefined) updates.location = location;
       if (status !== undefined) updates.status = status;
       if (inviteCode !== undefined) updates.inviteCode = inviteCode.trim();
+      if (attributeSetId !== undefined) updates.attributeSetId = attributeSetId ? parseInt(attributeSetId) : null;
       const updated = await db.update(auditions).set(updates).where(eq(auditions.id, auditionId)).returning();
       res.json(updated[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to update audition' });
+    }
+  });
+
+  app.delete('/api/auditions/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await verifyAuditionOwnership(auditionId, userId)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    try {
+      const auRows = await db.select({ id: auditionUsers.id }).from(auditionUsers)
+        .where(eq(auditionUsers.auditionId, auditionId));
+      if (auRows.length > 0) {
+        await db.delete(auditionUserCustomFields)
+          .where(inArray(auditionUserCustomFields.auditionUserId, auRows.map(r => r.id)));
+      }
+      await db.delete(auditionUsers).where(eq(auditionUsers.auditionId, auditionId));
+      await db.delete(auditionSlots).where(eq(auditionSlots.auditionId, auditionId));
+      await db.delete(callbacks).where(eq(callbacks.auditionId, auditionId));
+      await db.delete(auditions).where(eq(auditions.id, auditionId));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete audition' });
     }
   });
 
@@ -902,8 +1038,20 @@ async function startServer() {
         .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
         .then(rows => rows[0]);
       if (!audition) return res.status(404).json({ error: 'Audition not found' });
-      const attrs = await db.select().from(customAttributes)
-        .where(eq(customAttributes.userId, audition.userId));
+      let attrs;
+      if (audition.attributeSetId) {
+        const setItems = await db.select({ customAttributeId: attributeSetItems.customAttributeId })
+          .from(attributeSetItems).where(eq(attributeSetItems.attributeSetId, audition.attributeSetId));
+        if (setItems.length > 0) {
+          attrs = await db.select().from(customAttributes)
+            .where(inArray(customAttributes.id, setItems.map(i => i.customAttributeId)));
+        } else {
+          attrs = [];
+        }
+      } else {
+        attrs = await db.select().from(customAttributes)
+          .where(eq(customAttributes.userId, audition.userId));
+      }
       res.json({
         audition: { id: audition.id, title: audition.title, description: audition.description, date: audition.date, location: audition.location, status: audition.status },
         customAttributes: attrs,
@@ -1022,6 +1170,33 @@ async function startServer() {
         .where(sql`lower(${auditions.inviteCode}) = ${code.toLowerCase()}`)
         .then(rows => rows[0]);
       if (!audition) return res.status(404).json({ error: 'Audition not found' });
+
+      // Check participant limit for audition owner's plan
+      const ownerSub = await db.select().from(subscriptions)
+        .where(and(eq(subscriptions.userId, audition.userId), eq(subscriptions.status, 'active')))
+        .orderBy(desc(subscriptions.createdAt))
+        .then(rows => rows[0]);
+      const limits = getPlanLimits(ownerSub?.plan);
+      if (limits.maxParticipantsPerAudition !== Infinity) {
+        const existingUser = await db.select().from(users)
+          .where(sql`lower(${users.email}) = ${email.toLowerCase()}`)
+          .then(rows => rows[0]);
+        const alreadyInAudition = existingUser
+          ? await db.select().from(auditionUsers)
+              .where(and(eq(auditionUsers.auditionId, audition.id), eq(auditionUsers.userId, existingUser.id)))
+              .then(rows => rows.length > 0)
+          : false;
+        if (!alreadyInAudition) {
+          const participantCount = await db.select({ count: sql<number>`cast(count(*) as int)` })
+            .from(auditionUsers).where(eq(auditionUsers.auditionId, audition.id));
+          if (participantCount[0].count >= limits.maxParticipantsPerAudition) {
+            return res.status(403).json({
+              error: 'This audition has reached its maximum number of participants.',
+              code: 'PARTICIPANT_LIMIT',
+            });
+          }
+        }
+      }
 
       // Find or create user
       let existingUser = await db.select().from(users)
@@ -1237,7 +1412,8 @@ async function startServer() {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      const token = crypto.randomBytes(32).toString('hex');
+      const code = crypto.randomInt(100000, 999999).toString();
+      const token = `login:${email}:${code}`;
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
       await db.insert(loginTokens).values({
@@ -1246,29 +1422,27 @@ async function startServer() {
         expiresAt,
       });
 
-      const loginLink = `${APP_URL}/verify?token=${token}`;
-
       try {
         if (process.env.BREVO_API_KEY) {
           await client.transactionalEmails.sendTransacEmail({
-            subject: "Login to AuditionEase",
-            htmlContent: `<p>Click the link below to login to your AuditionEase account:</p><p><a href="${loginLink}">${loginLink}</a></p><p>This link expires in 15 minutes.</p>`,
+            subject: "Your AuditionEase Login Code",
+            htmlContent: `<p>Your verification code is:</p><h1 style="letter-spacing: 8px; font-size: 36px;">${code}</h1><p>This code expires in 15 minutes.</p>`,
             sender: { "name": "AuditionEase", "email": "noreply@auditionease.com" },
             to: [{ "email": email }],
           });
         } else {
-          console.log('--- LOGIN LINK (No Brevo API Key) ---');
-          console.log(loginLink);
+          console.log('--- LOGIN CODE (No Brevo API Key) ---');
+          console.log(`Code: ${code}`);
           console.log('-----------------------------------------');
         }
       } catch (emailErr) {
-        console.error('Email send failed, printing link to console:', emailErr);
-        console.log('--- LOGIN LINK (Email failed) ---');
-        console.log(loginLink);
+        console.error('Email send failed, printing code to console:', emailErr);
+        console.log('--- LOGIN CODE (Email failed) ---');
+        console.log(`Code: ${code}`);
         console.log('-----------------------------------------');
       }
 
-      res.json({ success: true, message: 'Login email sent' });
+      res.json({ success: true, message: 'Verification code sent' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to process login request' });
@@ -1277,17 +1451,18 @@ async function startServer() {
 
   app.post('/api/auth/verify-token', async (req, res) => {
     try {
-      const { token } = req.body;
+      const { email, code, token: legacyToken } = req.body;
+      const lookupToken = email && code ? `login:${email}:${code}` : legacyToken;
       const loginToken = await db.select().from(loginTokens)
         .where(and(
-          eq(loginTokens.token, token),
+          eq(loginTokens.token, lookupToken),
           eq(loginTokens.used, false),
           gt(loginTokens.expiresAt, new Date())
         ))
         .then(rows => rows[0]);
 
       if (!loginToken) {
-        return res.status(400).json({ error: 'Invalid or expired token' });
+        return res.status(400).json({ error: 'Invalid or expired code' });
       }
 
       await db.delete(loginTokens).where(
@@ -1360,15 +1535,65 @@ async function startServer() {
         customer: customerId,
         line_items: [{ price: priceId, quantity: 1 }],
         mode: 'subscription',
-        ui_mode: 'embedded',
-        return_url: `${APP_URL}?subscription=success`,
+        ui_mode: 'embedded_page',
+        return_url: `${APP_URL}?subscription=success&session_id={CHECKOUT_SESSION_ID}`,
         metadata: { userId: String(userId), plan, amount: amountMap[plan] },
       });
 
-      res.json({ clientSecret: session.client_secret });
+      res.json({ clientSecret: session.client_secret, sessionId: session.id });
     } catch (err) {
       console.error('Stripe checkout error:', err);
       res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  });
+
+  app.post('/api/stripe/verify-session', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.status !== 'complete') {
+        return res.status(400).json({ error: 'Session not complete' });
+      }
+
+      const sessionUserId = parseInt(session.metadata?.userId || '0');
+      if (sessionUserId !== userId) {
+        return res.status(403).json({ error: 'Session does not belong to this user' });
+      }
+
+      const existing = await db.select().from(subscriptions)
+        .where(eq(subscriptions.stripeSubscriptionId, session.subscription as string))
+        .then(rows => rows[0]);
+
+      if (!existing && session.subscription) {
+        const sub = await stripe.subscriptions.retrieve(session.subscription as string) as any;
+        const plan = session.metadata?.plan as 'business' | 'enterprise';
+        const amount = session.metadata?.amount || '0';
+
+        const periodEnd = sub.current_period_end
+          ?? sub.items?.data?.[0]?.current_period_end;
+        const endDate = periodEnd
+          ? new Date(periodEnd * 1000)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        await db.insert(subscriptions).values({
+          userId,
+          stripeSubscriptionId: sub.id,
+          plan,
+          amount,
+          status: 'active',
+          endDate,
+        });
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Verify session error:', err);
+      res.status(500).json({ error: 'Failed to verify session' });
     }
   });
 
@@ -1385,6 +1610,124 @@ async function startServer() {
       res.json({ subscription: sub || null });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch subscription' });
+    }
+  });
+
+  app.post('/api/stripe/change-plan', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+      const { newPlan } = req.body;
+      if (!['personal', 'business', 'enterprise'].includes(newPlan)) {
+        return res.status(400).json({ error: 'Invalid plan' });
+      }
+
+      const currentSub = await db.select().from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+        .orderBy(desc(subscriptions.createdAt))
+        .then(rows => rows[0]);
+
+      if (!currentSub) {
+        return res.status(400).json({ error: 'No active subscription to change' });
+      }
+
+      const planRank: Record<string, number> = { personal: 0, business: 1, enterprise: 2 };
+      if (planRank[newPlan] === planRank[currentSub.plan]) {
+        return res.status(400).json({ error: 'Already on this plan' });
+      }
+
+      const isUpgrade = planRank[newPlan] > planRank[currentSub.plan];
+
+      // Retrieve current Stripe subscription to get payment method
+      const currentStripeSub = await stripe.subscriptions.retrieve(
+        currentSub.stripeSubscriptionId,
+        { expand: ['default_payment_method', 'latest_invoice.payment_intent'] },
+      ) as any;
+      const pm = currentStripeSub.default_payment_method;
+      const paymentMethod: string | null =
+        (typeof pm === 'string' ? pm : pm?.id)
+        ?? currentStripeSub.latest_invoice?.payment_intent?.payment_method
+        ?? null;
+
+      // Cancel current subscription at period end
+      await stripe.subscriptions.update(currentSub.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      });
+      await db.update(subscriptions)
+        .set({ status: 'canceled', cancelledOn: new Date() })
+        .where(eq(subscriptions.id, currentSub.id));
+
+      if (newPlan === 'personal') {
+        res.json({ success: true, message: `Your ${currentSub.plan} plan will remain active until ${currentSub.endDate.toLocaleDateString()}` });
+        return;
+      }
+
+      // Create new subscription for the target paid plan
+      const priceIdMap: Record<string, string | undefined> = {
+        business: process.env.STRIPE_BUSINESS_PRICE_ID,
+        enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID,
+      };
+      const amountMap: Record<string, string> = { business: '19.95', enterprise: '49.95' };
+      const priceId = priceIdMap[newPlan];
+      if (!priceId) return res.status(400).json({ error: 'Price not configured' });
+
+      const user = await db.select().from(users).where(eq(users.id, userId)).then(rows => rows[0]);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      let customerId = user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`,
+          metadata: { userId: String(userId) },
+        });
+        customerId = customer.id;
+        await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+      }
+
+      // Set payment method as customer default so future subscriptions can use it
+      if (paymentMethod) {
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: paymentMethod as string },
+        });
+      }
+
+      const subscriptionParams: any = {
+        customer: customerId,
+        items: [{ price: priceId }],
+        metadata: { userId: String(userId), plan: newPlan, amount: amountMap[newPlan] },
+        ...(paymentMethod ? { default_payment_method: paymentMethod } : {}),
+      };
+
+      if (!isUpgrade) {
+        // Downgrade: add trial days so billing starts when current period ends
+        const now = Date.now();
+        const currentEnd = new Date(currentSub.endDate).getTime();
+        const trialDays = Math.max(1, Math.ceil((currentEnd - now) / (1000 * 60 * 60 * 24)));
+        subscriptionParams.trial_period_days = trialDays;
+      }
+
+      const newStripeSub = await stripe.subscriptions.create(subscriptionParams) as any;
+      const periodEnd = newStripeSub.current_period_end
+        ?? newStripeSub.items?.data?.[0]?.current_period_end;
+      const endDate = periodEnd
+        ? new Date(periodEnd * 1000)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      await db.insert(subscriptions).values({
+        userId,
+        stripeSubscriptionId: newStripeSub.id,
+        plan: newPlan,
+        amount: amountMap[newPlan],
+        status: 'active',
+        endDate,
+      });
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Change plan error:', err);
+      res.status(500).json({ error: 'Failed to change plan' });
     }
   });
 

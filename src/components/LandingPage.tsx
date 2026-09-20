@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
+import { PLAN_LIMITS, formatLimit } from '../planLimits';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -132,7 +133,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
               {
                 icon: <Trophy className="text-[#4F46E5]" size={32} />,
                 title: "Placement Pipeline",
-                description: "Seamlessly move applicants through rounds. Manage placements with a visual Kanban board."
+                description: "Seamlessly move applicants through rounds. Keep track of where everything stands using simple, visual boards."
               },
               {
                 icon: <ShieldCheck className="text-[#4F46E5]" size={32} />,
@@ -239,8 +240,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
               </div>
               <ul className="space-y-4 mb-10 flex-grow">
                 {[
-                  "Up to 3 Saved Auditions",
-                  "Up to 10 Participants per Audition",
+                  `Up to ${PLAN_LIMITS.personal.maxAuditions} Saved Auditions`,
+                  `Up to ${PLAN_LIMITS.personal.maxParticipantsPerAudition} Participants per Audition`,
                   "Smart Scheduling",
                   "Basic Applicant Profiles",
                   "Email Support"
@@ -279,8 +280,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
               </div>
               <ul className="space-y-4 mb-10 flex-grow relative z-10">
                 {[
-                  "Up to 50 Saved Auditions",
-                  "Up to 200 Participants per Audition",
+                  `Up to ${PLAN_LIMITS.business.maxAuditions} Saved Auditions`,
+                  `Up to ${PLAN_LIMITS.business.maxParticipantsPerAudition} Participants per Audition`,
                   "Advanced Placement Pipeline",
                   "Custom Attributes",
                   "Priority Support",
@@ -317,8 +318,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
               </div>
               <ul className="space-y-4 mb-10 flex-grow relative z-10">
                 {[
-                  "Unlimited Auditions",
-                  "Unlimited Participants",
+                  `${formatLimit(PLAN_LIMITS.enterprise.maxAuditions)} Auditions`,
+                  `${formatLimit(PLAN_LIMITS.enterprise.maxParticipantsPerAudition)} Participants`,
                   "Divisions to Organize Auditions",
                   "Advanced Placement Pipeline",
                   "Custom Attributes",
@@ -356,17 +357,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
             {[
               {
                 quote: "AuditionEase has completely changed how we handle our annual auditions. No more spreadsheets or missed emails.",
-                author: "Sarah Jenkins",
+                author: "S. Jenkins",
                 role: "Artistic Director, Metro Arts"
               },
               {
                 quote: "The placement pipeline is a game-changer. I can see exactly where every applicant stands at any moment.",
-                author: "David Chen",
+                author: "D. Chen",
                 role: "Casting Director, City Theater"
               },
               {
                 quote: "Applicants love the self-scheduling feature. It makes us look professional from the very first interaction.",
-                author: "Elena Rodriguez",
+                author: "E. Rodriguez",
                 role: "Program Director, Dance Academy"
               }
             ].map((testimonial, i) => (
@@ -418,10 +419,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSelect
           <p className="text-gray-400 text-sm">
             © {new Date().getFullYear()} AuditionEase. All rights reserved.
           </p>
-          <div className="flex gap-6 text-sm text-gray-500">
-            <a href="#" className="hover:text-[#4F46E5]">Privacy</a>
-            <a href="#" className="hover:text-[#4F46E5]">Terms</a>
-            <a href="#" className="hover:text-[#4F46E5]">Contact</a>
+          <div className="flex flex-wrap gap-6 text-sm text-gray-500">
+            <a href="/privacy" className="hover:text-[#4F46E5]">Privacy</a>
+            <a href="/terms" className="hover:text-[#4F46E5]">Terms</a>
+            <a href="/refund-policy" className="hover:text-[#4F46E5]">Refund Policy</a>
+            <a href="/contact" className="hover:text-[#4F46E5]">Contact</a>
           </div>
         </div>
       </footer>

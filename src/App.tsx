@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
-  Music,
   Mic2,
   Trophy,
   Search,
@@ -28,14 +27,18 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AuthPage } from './components/AuthPage';
-import { VerifyPage } from './components/VerifyPage';
 import { LandingPage } from './components/LandingPage';
 import { InvitePage } from './components/InvitePage';
 import { Dashboard } from './components/Dashboard';
 import { CheckoutModal } from './components/CheckoutModal';
-import { Link2, Copy, Check, FileBarChart, Play, Filter, Download, CreditCard } from 'lucide-react';
+import { Link2, Copy, Check, FileBarChart, Play, Filter, Download, CreditCard, Lock } from 'lucide-react';
 import { LogOut, ShieldCheck } from 'lucide-react';
 import { AdminPage } from './components/AdminPage';
+import { TermsPage } from './components/TermsPage';
+import { PrivacyPage } from './components/PrivacyPage';
+import { RefundPage } from './components/RefundPage';
+import { ContactPage } from './components/ContactPage';
+import { PLAN_LIMITS, getPlanLimits, formatLimit } from './planLimits';
 
 // --- Types ---
 interface CustomFieldValue {
@@ -65,6 +68,13 @@ interface CustomAttribute {
   order: number;
 }
 
+interface AttributeSet {
+  id: number;
+  name: string;
+  attributeIds: number[];
+  createdAt: string;
+}
+
 interface Audition {
   id: number;
   title: string;
@@ -73,6 +83,7 @@ interface Audition {
   location: string;
   status: 'open' | 'closed' | 'completed';
   inviteCode: string;
+  attributeSetId: number | null;
   createdAt: string;
   userCount: number;
   openSlots: number;
@@ -152,6 +163,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings' | 'admin'>('dashboard');
   const [auditions, setAuditions] = useState<Audition[]>([]);
   const [customAttributes, setCustomAttributes] = useState<CustomAttribute[]>([]);
+  const [attributeSets, setAttributeSets] = useState<AttributeSet[]>([]);
   const [selectedAudition, setSelectedAudition] = useState<Audition | null>(null);
   const [slots, setSlots] = useState<AuditionSlot[]>([]);
   const [auditionUsersMap, setAuditionUsersMap] = useState<Map<number, AuditionUser[]>>(new Map());
@@ -163,12 +175,20 @@ function AppContent() {
   const [editingAudition, setEditingAudition] = useState<Audition | null>(null);
   const [auditionSort, setAuditionSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'desc' });
   const [showGenerateSlots, setShowGenerateSlots] = useState(false);
+  const [showDeleteAudition, setShowDeleteAudition] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingAudition, setDeletingAudition] = useState(false);
   const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
-  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string });
+  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string, attributeSetId: '' as string });
 
   // Settings states
-  const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'billing'>('general');
+  const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'attributeSets' | 'billing'>('general');
   const [newAttr, setNewAttr] = useState({ label: '', type: 'text' as any, options: '', required: false });
+  const [newSetName, setNewSetName] = useState('');
+  const [newSetAttrIds, setNewSetAttrIds] = useState<number[]>([]);
+  const [editingSet, setEditingSet] = useState<AttributeSet | null>(null);
+  const [editSetName, setEditSetName] = useState('');
+  const [editSetAttrIds, setEditSetAttrIds] = useState<number[]>([]);
 
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [showUserDetails, setShowUserDetails] = useState<AuditionUser | null>(null);
@@ -223,6 +243,30 @@ function AppContent() {
   // Subscription state
   const [currentSubscription, setCurrentSubscription] = useState<any>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [changePlanLoading, setChangePlanLoading] = useState<string | null>(null);
+  const [changePlanMessage, setChangePlanMessage] = useState<string | null>(null);
+
+  const handleChangePlan = async (newPlan: 'personal' | 'business' | 'enterprise') => {
+    setChangePlanLoading(newPlan);
+    setChangePlanMessage(null);
+    try {
+      const res = await authFetch('/api/stripe/change-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPlan }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (data.message) setChangePlanMessage(data.message);
+      const subRes = await authFetch('/api/subscription');
+      const subData = await subRes.json();
+      setCurrentSubscription(subData.subscription);
+    } catch (err: any) {
+      setChangePlanMessage(err.message || 'Failed to change plan');
+    } finally {
+      setChangePlanLoading(null);
+    }
+  };
 
   const navigateToLogin = () => {
     window.history.pushState({}, '', '/login');
@@ -273,6 +317,27 @@ function AppContent() {
     }
   }, [user]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (params.get('subscription') === 'success' && sessionId && user) {
+      window.history.replaceState({}, '', '/');
+      setSubscriptionLoading(true);
+      authFetch('/api/stripe/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+        .then(() => authFetch('/api/subscription'))
+        .then(r => r.json())
+        .then(data => setCurrentSubscription(data.subscription))
+        .catch(() => {})
+        .finally(() => setSubscriptionLoading(false));
+      setActiveTab('settings');
+      setSetupTab('billing');
+    }
+  }, [user]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0]">
@@ -281,13 +346,25 @@ function AppContent() {
     );
   }
 
-  if (currentPath === '/verify') {
-    return <VerifyPage />;
-  }
-
   const inviteMatch = currentPath.match(/^\/invite\/([^/]+)$/);
   if (inviteMatch) {
     return <InvitePage inviteCode={inviteMatch[1]} />;
+  }
+
+  if (currentPath === '/terms') {
+    return <TermsPage onBack={navigateToHome} />;
+  }
+
+  if (currentPath === '/privacy') {
+    return <PrivacyPage onBack={navigateToHome} />;
+  }
+
+  if (currentPath === '/refund-policy') {
+    return <RefundPage onBack={navigateToHome} />;
+  }
+
+  if (currentPath === '/contact') {
+    return <ContactPage onBack={navigateToHome} />;
   }
 
   if (!user) {
@@ -301,10 +378,6 @@ function AppContent() {
           <CheckoutModal
             plan={checkoutPlan}
             onClose={() => setCheckoutPlan(null)}
-            onSuccess={() => {
-              setCheckoutPlan(null);
-              navigateToLogin();
-            }}
           />
         )}
       </>
@@ -315,19 +388,25 @@ function AppContent() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [audRes, myAudRes, attrRes, repRes] = await Promise.all([
+      const [audRes, myAudRes, attrRes, attrSetsRes, repRes, subRes] = await Promise.all([
         authFetch('/api/auditions'),
         authFetch('/api/my-auditions'),
         authFetch('/api/custom-attributes'),
-        authFetch('/api/reports')
+        authFetch('/api/attribute-sets'),
+        authFetch('/api/reports'),
+        authFetch('/api/subscription')
       ]);
       const audData = await audRes.json();
       const myAudData = await myAudRes.json();
       const attrData = await attrRes.json();
+      const attrSetsData = await attrSetsRes.json();
       const repData = await repRes.json();
+      const subData = await subRes.json();
       setAuditions(audData);
       setMyAuditions(myAudData);
       setCustomAttributes(attrData);
+      setAttributeSets(attrSetsData);
+      setCurrentSubscription(subData.subscription);
       setReportsList(repData.map((r: any) => ({
         ...r,
         criteria: JSON.parse(r.criteria || '[]'),
@@ -362,6 +441,23 @@ function AppContent() {
     }
   }
 
+  const openNewAudition = () => {
+    const limits = getPlanLimits(currentSubscription?.plan);
+    if (limits.maxAuditions !== Infinity && auditions.length >= limits.maxAuditions) {
+      const planLabel = currentSubscription?.plan === 'business' ? 'Enterprise' : 'Business';
+      if (confirm(`Your plan allows up to ${limits.maxAuditions} auditions. Would you like to upgrade to ${planLabel}?`)) {
+        setActiveTab('settings');
+        setSetupTab('billing');
+        setSubscriptionLoading(true);
+        authFetch('/api/subscription').then(r => r.json()).then(data => setCurrentSubscription(data.subscription)).catch(() => {}).finally(() => setSubscriptionLoading(false));
+      }
+      return;
+    }
+    setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open', attributeSetId: '' });
+    setEditingAudition(null);
+    setShowAddAudition(true);
+  };
+
   const handleAddAudition = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -373,7 +469,7 @@ function AppContent() {
       if (res.ok) {
         fetchData();
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '' });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to create audition');
@@ -400,13 +496,34 @@ function AppContent() {
         }
         setEditingAudition(null);
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '' });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to update audition');
       }
     } catch (err) {
       console.error('Error updating audition:', err);
+    }
+  };
+
+  const handleDeleteAudition = async () => {
+    if (!selectedAudition || deleteConfirmText.toLowerCase() !== 'delete') return;
+    setDeletingAudition(true);
+    try {
+      const res = await authFetch(`/api/auditions/${selectedAudition.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setShowDeleteAudition(false);
+        setDeleteConfirmText('');
+        setSelectedAudition(null);
+        fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete audition');
+      }
+    } catch (err) {
+      console.error('Error deleting audition:', err);
+    } finally {
+      setDeletingAudition(false);
     }
   };
 
@@ -460,6 +577,53 @@ function AppContent() {
     } catch (err) {
       console.error('Error reordering attributes:', err);
       fetchData();
+    }
+  };
+
+  const handleAddAttributeSet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSetName.trim()) return;
+    try {
+      const res = await authFetch('/api/attribute-sets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSetName.trim(), attributeIds: newSetAttrIds })
+      });
+      if (res.ok) {
+        fetchData();
+        setNewSetName('');
+        setNewSetAttrIds([]);
+      }
+    } catch (err) {
+      console.error('Error creating attribute set:', err);
+    }
+  };
+
+  const handleUpdateAttributeSet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSet || !editSetName.trim()) return;
+    try {
+      const res = await authFetch(`/api/attribute-sets/${editingSet.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editSetName.trim(), attributeIds: editSetAttrIds })
+      });
+      if (res.ok) {
+        fetchData();
+        setEditingSet(null);
+      }
+    } catch (err) {
+      console.error('Error updating attribute set:', err);
+    }
+  };
+
+  const handleDeleteAttributeSet = async (id: number) => {
+    if (!confirm('Delete this attribute set? Auditions using it will revert to showing all attributes.')) return;
+    try {
+      const res = await authFetch(`/api/attribute-sets/${id}`, { method: 'DELETE' });
+      if (res.ok) fetchData();
+    } catch (err) {
+      console.error('Error deleting attribute set:', err);
     }
   };
 
@@ -775,7 +939,7 @@ function AppContent() {
       <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10">
         <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
           <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
-            <Music size={24} />
+            <ClipboardList size={24} />
           </div>
           <h1 className="text-xl font-bold tracking-tight">AuditionEase</h1>
         </a>
@@ -867,7 +1031,7 @@ function AppContent() {
               authFetch={authFetch}
               onNavigate={(tab) => setActiveTab(tab as any)}
               onSelectAudition={(audition) => { setActiveTab('auditions'); handleSelectAudition(audition); }}
-              onCreateAudition={() => { setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open' }); setEditingAudition(null); setShowAddAudition(true); }}
+              onCreateAudition={openNewAudition}
               onRefresh={fetchData}
             />
           )}
@@ -886,7 +1050,7 @@ function AppContent() {
                   <p className="text-[#6B7280]">Schedule slots, track applicants, and manage section placement.</p>
                 </div>
                 <button
-                  onClick={() => { setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open' }); setEditingAudition(null); setShowAddAudition(true); }}
+                  onClick={openNewAudition}
                   className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
                 >
                   <Plus size={20} />
@@ -1030,6 +1194,7 @@ function AppContent() {
                             {copiedInvite ? <Check size={14} className="text-[#10B981]" /> : <Copy size={14} />}
                           </button>
                         </div>
+                        <p className="text-sm text-[#6B7280] mb-2">Share this link with anyone you'd like to invite to your audition. They'll be able to sign up, pick a time slot, and fill out any information you need.</p>
                         <p className="text-[#6B7280]">{selectedAudition.description}</p>
                       </div>
                       <div className="flex gap-3">
@@ -1041,7 +1206,8 @@ function AppContent() {
                               date: selectedAudition.date,
                               location: selectedAudition.location || '',
                               inviteCode: selectedAudition.inviteCode,
-                              status: selectedAudition.status
+                              status: selectedAudition.status,
+                              attributeSetId: selectedAudition.attributeSetId ? String(selectedAudition.attributeSetId) : ''
                             });
                             setEditingAudition(selectedAudition);
                             setShowAddAudition(true);
@@ -1059,6 +1225,13 @@ function AppContent() {
                           className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold hover:bg-[#F3F4F6]"
                         >
                           Generate Slots
+                        </button>
+                        <button
+                          onClick={() => { setDeleteConfirmText(''); setShowDeleteAudition(true); }}
+                          className="px-4 py-2 border border-red-200 text-red-600 rounded-xl text-sm font-bold hover:bg-red-50 flex items-center gap-1.5"
+                        >
+                          <Trash2 size={14} />
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -1327,7 +1500,7 @@ function AppContent() {
               <div className="flex justify-between items-start mb-10">
                 <div>
                   <h2 className="text-3xl font-extrabold tracking-tight mb-2">Section Placement</h2>
-                  <p className="text-[#6B7280]">Final decisions for singers who passed the initial round.</p>
+                  <p className="text-[#6B7280]">Final decisions for participants who passed the initial round.</p>
                 </div>
               </div>
 
@@ -1497,6 +1670,13 @@ function AppContent() {
                 >
                   <ClipboardList size={16} />
                   Applicant Attributes
+                </button>
+                <button
+                  onClick={() => setSetupTab('attributeSets')}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributeSets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                >
+                  <Filter size={16} />
+                  Attribute Sets
                 </button>
                 <button
                   onClick={() => {
@@ -1822,6 +2002,128 @@ function AppContent() {
                 </div>
               )}
 
+              {setupTab === 'attributeSets' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-1">
+                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
+                      <h3 className="text-lg font-bold mb-4">{editingSet ? 'Edit Attribute Set' : 'Create Attribute Set'}</h3>
+                      <form onSubmit={editingSet ? handleUpdateAttributeSet : handleAddAttributeSet} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Set Name</label>
+                          <input
+                            required
+                            type="text"
+                            value={editingSet ? editSetName : newSetName}
+                            onChange={e => editingSet ? setEditSetName(e.target.value) : setNewSetName(e.target.value)}
+                            className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm"
+                            placeholder="e.g. Vocal Audition Fields"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Select Attributes</label>
+                          {customAttributes.length === 0 ? (
+                            <p className="text-sm text-[#6B7280]">No attributes defined yet. Create some in the Applicant Attributes tab first.</p>
+                          ) : (
+                            <div className="space-y-2 max-h-64 overflow-y-auto border border-[#E5E7EB] rounded-xl p-3">
+                              {customAttributes.map(attr => {
+                                const selected = editingSet ? editSetAttrIds.includes(attr.id) : newSetAttrIds.includes(attr.id);
+                                return (
+                                  <label key={attr.id} className="flex items-center gap-2 cursor-pointer hover:bg-[#F9FAFB] p-1.5 rounded-lg">
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      onChange={e => {
+                                        if (editingSet) {
+                                          setEditSetAttrIds(e.target.checked ? [...editSetAttrIds, attr.id] : editSetAttrIds.filter(id => id !== attr.id));
+                                        } else {
+                                          setNewSetAttrIds(e.target.checked ? [...newSetAttrIds, attr.id] : newSetAttrIds.filter(id => id !== attr.id));
+                                        }
+                                      }}
+                                      className="rounded"
+                                    />
+                                    <span className="text-sm font-medium">{attr.label}</span>
+                                    <span className="text-xs text-[#9CA3AF] ml-auto">{attr.type === 'select' ? 'Dropdown' : attr.type === 'multiselect' ? 'Multi-select' : attr.type}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {editingSet && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingSet(null)}
+                              className="flex-1 px-4 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          <button
+                            type="submit"
+                            disabled={customAttributes.length === 0}
+                            className="flex-1 bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {editingSet ? 'Save Changes' : 'Create Set'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-lg font-bold">Current Attribute Sets</h3>
+                    {attributeSets.length === 0 ? (
+                      <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center text-[#6B7280]">
+                        No attribute sets defined yet. Create one to group specific attributes for different audition types.
+                      </div>
+                    ) : (
+                      attributeSets.map(set => (
+                        <div key={set.id} className="bg-white p-5 rounded-2xl border border-[#E5E7EB]">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <p className="font-bold text-[#111827]">{set.name}</p>
+                              <p className="text-xs text-[#6B7280] mt-0.5">{set.attributeIds.length} attribute{set.attributeIds.length !== 1 ? 's' : ''}</p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingSet(set);
+                                  setEditSetName(set.name);
+                                  setEditSetAttrIds([...set.attributeIds]);
+                                }}
+                                className="p-2 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg transition-colors"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteAttributeSet(set.id)}
+                                className="p-2 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                              >
+                                <XCircle size={16} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {set.attributeIds.map(attrId => {
+                              const attr = customAttributes.find(a => a.id === attrId);
+                              return attr ? (
+                                <span key={attrId} className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[#F3F4F6] text-xs font-medium text-[#374151]">
+                                  {attr.label}
+                                </span>
+                              ) : null;
+                            })}
+                            {set.attributeIds.length === 0 && (
+                              <span className="text-xs text-[#9CA3AF] italic">No attributes selected</span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
               {setupTab === 'billing' && (
                 <div className="space-y-8">
                   <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
@@ -1872,14 +2174,20 @@ function AppContent() {
                         <h4 className="text-lg font-bold mb-1">Personal</h4>
                         <p className="text-2xl font-black mb-3">Free</p>
                         <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to 3 Saved Auditions</li>
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> 10 Participants per Audition</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to {PLAN_LIMITS.personal.maxAuditions} Saved Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> {PLAN_LIMITS.personal.maxParticipantsPerAudition} Participants per Audition</li>
                           <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Email Support</li>
                         </ul>
                         {!currentSubscription ? (
                           <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
                         ) : (
-                          <span className="block text-center text-sm text-[#9CA3AF]">Contact support to downgrade</span>
+                          <button
+                            onClick={() => handleChangePlan('personal')}
+                            disabled={changePlanLoading !== null}
+                            className="w-full py-2.5 rounded-xl bg-gray-100 text-[#374151] text-sm font-bold hover:bg-gray-200 transition-colors disabled:opacity-50"
+                          >
+                            {changePlanLoading === 'personal' ? 'Processing...' : 'Downgrade to Personal'}
+                          </button>
                         )}
                       </div>
                       {/* Business */}
@@ -1887,18 +2195,26 @@ function AppContent() {
                         <h4 className="text-lg font-bold mb-1">Business</h4>
                         <p className="text-2xl font-black mb-3">$19.95<span className="text-sm font-normal text-[#6B7280]">/mo</span></p>
                         <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to 50 Saved Auditions</li>
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> 200 Participants per Audition</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Up to {PLAN_LIMITS.business.maxAuditions} Saved Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> {PLAN_LIMITS.business.maxParticipantsPerAudition} Participants per Audition</li>
                           <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Priority Support</li>
                         </ul>
                         {currentSubscription?.plan === 'business' ? (
                           <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
+                        ) : currentSubscription ? (
+                          <button
+                            onClick={() => handleChangePlan('business')}
+                            disabled={changePlanLoading !== null}
+                            className="w-full py-2.5 rounded-xl bg-[#4F46E5] text-white text-sm font-bold hover:bg-[#4338CA] transition-colors disabled:opacity-50"
+                          >
+                            {changePlanLoading === 'business' ? 'Processing...' : currentSubscription.plan === 'enterprise' ? 'Downgrade to Business' : 'Upgrade to Business'}
+                          </button>
                         ) : (
                           <button
                             onClick={() => setCheckoutPlan('business')}
                             className="w-full py-2.5 rounded-xl bg-[#4F46E5] text-white text-sm font-bold hover:bg-[#4338CA] transition-colors"
                           >
-                            {currentSubscription ? 'Switch to Business' : 'Upgrade to Business'}
+                            Upgrade to Business
                           </button>
                         )}
                       </div>
@@ -1907,22 +2223,35 @@ function AppContent() {
                         <h4 className="text-lg font-bold mb-1">Enterprise</h4>
                         <p className="text-2xl font-black mb-3">$49.95<span className="text-sm font-normal text-[#6B7280]">/mo</span></p>
                         <ul className="space-y-2 text-sm text-[#6B7280] mb-6">
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Unlimited Auditions</li>
-                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Unlimited Participants</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> {formatLimit(PLAN_LIMITS.enterprise.maxAuditions)} Auditions</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> {formatLimit(PLAN_LIMITS.enterprise.maxParticipantsPerAudition)} Participants</li>
                           <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-[#4F46E5]" /> Divisions & Dedicated Support</li>
                         </ul>
                         {currentSubscription?.plan === 'enterprise' ? (
                           <span className="block text-center text-sm font-bold text-[#4F46E5]">Current Plan</span>
+                        ) : currentSubscription ? (
+                          <button
+                            onClick={() => handleChangePlan('enterprise')}
+                            disabled={changePlanLoading !== null}
+                            className="w-full py-2.5 rounded-xl bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black transition-colors disabled:opacity-50"
+                          >
+                            {changePlanLoading === 'enterprise' ? 'Processing...' : 'Upgrade to Enterprise'}
+                          </button>
                         ) : (
                           <button
                             onClick={() => setCheckoutPlan('enterprise')}
                             className="w-full py-2.5 rounded-xl bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black transition-colors"
                           >
-                            {currentSubscription ? 'Switch to Enterprise' : 'Upgrade to Enterprise'}
+                            Upgrade to Enterprise
                           </button>
                         )}
                       </div>
                     </div>
+                    {changePlanMessage && (
+                      <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-100 text-sm text-blue-700">
+                        {changePlanMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2271,31 +2600,43 @@ function AppContent() {
                       <p className="text-[#6B7280]">{reportResults.rows.length} result{reportResults.rows.length !== 1 ? 's' : ''} found</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => {
-                          const cols = reportResults.columns;
-                          const header = cols.map(c => `"${c.label.replace(/"/g, '""')}"`).join(',');
-                          const rows = reportResults.rows.map(row =>
-                            cols.map(c => {
-                              const val = String(row[c.field] ?? '');
-                              return `"${val.replace(/"/g, '""')}"`;
-                            }).join(',')
-                          );
-                          const csv = [header, ...rows].join('\n');
-                          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          const now = new Date();
-                          const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
-                          a.download = `${reportResults.reportName.replace(/[^a-zA-Z0-9 ]/g, '').trim()}_${stamp}.csv`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}
-                        className="bg-white text-[#4F46E5] border border-[#4F46E5] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#EEF2FF] transition-colors"
-                      >
-                        <Download size={16} /> Export CSV
-                      </button>
+                      {currentSubscription?.plan === 'business' || currentSubscription?.plan === 'enterprise' ? (
+                        <button
+                          onClick={() => {
+                            const cols = reportResults.columns;
+                            const header = cols.map(c => `"${c.label.replace(/"/g, '""')}"`).join(',');
+                            const rows = reportResults.rows.map(row =>
+                              cols.map(c => {
+                                const val = String(row[c.field] ?? '');
+                                return `"${val.replace(/"/g, '""')}"`;
+                              }).join(',')
+                            );
+                            const csv = [header, ...rows].join('\n');
+                            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            const now = new Date();
+                            const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+                            a.download = `${reportResults.reportName.replace(/[^a-zA-Z0-9 ]/g, '').trim()}_${stamp}.csv`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="bg-white text-[#4F46E5] border border-[#4F46E5] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#EEF2FF] transition-colors"
+                        >
+                          <Download size={16} /> Export CSV
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setActiveTab('settings'); setSetupTab('billing'); setSubscriptionLoading(true); authFetch('/api/subscription').then(r => r.json()).then(data => setCurrentSubscription(data.subscription)).catch(() => {}).finally(() => setSubscriptionLoading(false)); }}
+                          className="relative bg-white text-[#9CA3AF] border border-[#E5E7EB] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:border-[#4F46E5] hover:text-[#4F46E5] transition-colors group"
+                        >
+                          <Lock size={16} /> Export CSV
+                          <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#1F2937] text-white text-xs font-medium px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            Upgrade to Business to export
+                          </span>
+                        </button>
+                      )}
                       {runningReportId && (
                         <button
                           onClick={() => handleRunReport(runningReportId)}
@@ -2431,6 +2772,22 @@ function AppContent() {
                 />
                 <p className="text-xs text-[#9CA3AF] mt-1">Letters, numbers, underscores, and dashes only. Shared with participants to sign up.</p>
               </div>
+              {attributeSets.length > 0 && (
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Attribute Set <span className="text-[#9CA3AF] font-normal">(optional)</span></label>
+                  <select
+                    value={newAudition.attributeSetId}
+                    onChange={e => setNewAudition({...newAudition, attributeSetId: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all bg-white"
+                  >
+                    <option value="">All Attributes</option>
+                    {attributeSets.map(set => (
+                      <option key={set.id} value={String(set.id)}>{set.name} ({set.attributeIds.length} attributes)</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[#9CA3AF] mt-1">Choose which attributes applicants fill out for this audition.</p>
+                </div>
+              )}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -2447,6 +2804,59 @@ function AppContent() {
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {showDeleteAudition && selectedAudition && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-[#111827]">Delete Audition</h3>
+            </div>
+            <p className="text-sm text-[#6B7280] mb-2">
+              You are about to permanently delete <span className="font-bold text-[#111827]">{selectedAudition.title}</span>.
+            </p>
+            <p className="text-sm text-[#6B7280] mb-6">
+              All data for this audition will be permanently lost, including time slots, evaluations, callbacks, and participant answers. This action cannot be undone.
+            </p>
+            <div className="mb-6">
+              <label className="block text-sm font-bold text-[#374151] mb-1.5">
+                Type <span className="text-red-600">delete</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder="delete"
+                className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAudition(false)}
+                className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAudition}
+                disabled={deleteConfirmText.toLowerCase() !== 'delete' || deletingAudition}
+                className="flex-1 bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deletingAudition ? 'Deleting...' : 'Delete Audition'}
+              </button>
+            </div>
           </motion.div>
         </div>
       )}
@@ -2807,11 +3217,15 @@ function AppContent() {
                     />
                   </div>
 
-                  {customAttributes.length > 0 && (
+                  {(() => {
+                    const setId = selectedAudition?.attributeSetId;
+                    const attrSet = setId ? attributeSets.find(s => s.id === setId) : null;
+                    const editableAttrs = attrSet ? customAttributes.filter(a => attrSet.attributeIds.includes(a.id)) : customAttributes;
+                    return editableAttrs.length > 0 && (
                     <div className="pt-4 border-t border-[#E5E7EB]">
                       <p className="text-xs font-bold text-[#4F46E5] uppercase tracking-wider mb-3">Vocal Attributes</p>
                       <div className="space-y-3">
-                        {customAttributes.map(attr => {
+                        {editableAttrs.map(attr => {
                           const cfEntry = editUserForm.customFieldValues.find(cf => cf.customAttributeId === attr.id);
                           const val = cfEntry?.value ?? '';
                           const updateCf = (newVal: string) => {
@@ -2872,7 +3286,8 @@ function AppContent() {
                         })}
                       </div>
                     </div>
-                  )}
+                  );
+                  })()}
                 </div>
 
                 <div className="flex gap-3 mt-8">
@@ -3000,10 +3415,6 @@ function AppContent() {
         <CheckoutModal
           plan={checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
-          onSuccess={() => {
-            setCheckoutPlan(null);
-            window.location.href = '/?subscription=success';
-          }}
         />
       )}
     </div>

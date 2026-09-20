@@ -21,6 +21,7 @@ export const subscriptions = pgTable('subscriptions', {
   status: text('status').$type<'active' | 'canceled' | 'past_due' | 'incomplete'>().default('active').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   endDate: timestamp('end_date').notNull(),
+  cancelledOn: timestamp('cancelled_on'),
 }, (table) => [
   index('subscriptions_user_id_idx').on(table.userId),
   index('subscriptions_stripe_sub_id_idx').on(table.stripeSubscriptionId),
@@ -59,6 +60,24 @@ export const customAttributes = pgTable('custom_attributes', {
   index('custom_attributes_user_id_idx').on(table.userId),
 ]);
 
+export const attributeSets = pgTable('attribute_sets', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('attribute_sets_user_id_idx').on(table.userId),
+]);
+
+export const attributeSetItems = pgTable('attribute_set_items', {
+  id: serial('id').primaryKey(),
+  attributeSetId: integer('attribute_set_id').references(() => attributeSets.id).notNull(),
+  customAttributeId: integer('custom_attribute_id').references(() => customAttributes.id).notNull(),
+}, (table) => [
+  uniqueIndex('attribute_set_items_unique_idx').on(table.attributeSetId, table.customAttributeId),
+  index('attribute_set_items_set_id_idx').on(table.attributeSetId),
+]);
+
 export const auditions = pgTable('auditions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),
@@ -68,6 +87,7 @@ export const auditions = pgTable('auditions', {
   location: text('location'),
   status: text('status').$type<'open' | 'closed' | 'completed'>().default('open'),
   inviteCode: text('invite_code').notNull().unique(),
+  attributeSetId: integer('attribute_set_id').references(() => attributeSets.id),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('auditions_user_id_idx').on(table.userId),

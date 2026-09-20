@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'motion/react';
-import { Mail, User, ArrowRight, Loader2, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Mail, User, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
 
 interface AuthPageProps {
   onBack?: () => void;
@@ -14,9 +14,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   const [lastName, setLastName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
-  const { login, register } = useAuth();
+  const { login, register, verifyCode } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,11 +27,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     try {
       if (isRegistering) {
         await register(firstName, lastName, email);
-        setSuccess(true);
       } else {
         await login(email);
-        setSuccess(true);
       }
+      setCodeSent(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -37,28 +38,102 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     }
   };
 
-  if (success) {
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVerifying(true);
+    setError(null);
+    try {
+      await verifyCode(email, code);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  if (codeSent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl text-center border border-[#E5E7EB]"
+          className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl border border-[#E5E7EB]"
         >
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mail className="w-8 h-8 text-[#4F46E5]" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Enter your code</h2>
+            <p className="text-gray-500">
+              We sent a 6-digit code to <strong>{email}</strong>
+            </p>
           </div>
-          <h2 className="text-2xl font-bold mb-4">Check your email</h2>
-          <p className="text-gray-600 mb-8 leading-relaxed">
-            We've sent a login link to <strong>{email}</strong>. <br />
-            The link will expire in 15 minutes.
-          </p>
-          <button 
-            onClick={() => setSuccess(false)}
-            className="text-[#4F46E5] font-bold hover:underline"
-          >
-            Back to login
-          </button>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium border border-red-100">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleVerifyCode} className="space-y-5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Verification Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                required
+                autoFocus
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                className="w-full text-center text-3xl tracking-[0.5em] py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-[#4F46E5] focus:bg-white outline-none transition-all font-bold"
+                placeholder="------"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={verifying || code.length !== 6}
+              className="w-full bg-[#4F46E5] text-white rounded-2xl py-4 font-black uppercase tracking-widest text-sm flex items-center justify-center gap-3 hover:bg-[#4338CA] transition-all disabled:opacity-50 shadow-lg shadow-indigo-100 active:scale-[0.98]"
+            >
+              {verifying ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  Verify
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-gray-100 text-center space-y-3">
+            <button
+              onClick={async () => {
+                setError(null);
+                setLoading(true);
+                try {
+                  await login(email);
+                } catch (err: any) {
+                  setError(err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+            >
+              {loading ? 'SENDING...' : 'RESEND CODE'}
+            </button>
+            <br />
+            <button
+              onClick={() => { setCodeSent(false); setCode(''); setError(null); }}
+              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+            >
+              USE A DIFFERENT EMAIL
+            </button>
+          </div>
         </motion.div>
       </div>
     );
@@ -67,7 +142,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4 relative">
       {onBack && (
-        <button 
+        <button
           onClick={onBack}
           className="absolute top-8 left-8 flex items-center gap-2 text-[#6B7280] hover:text-[#4F46E5] font-bold transition-colors"
         >
@@ -76,7 +151,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
         </button>
       )}
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-md w-full bg-white rounded-3xl p-10 shadow-xl border border-[#E5E7EB]"
@@ -155,7 +230,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <>
-                {isRegistering ? 'Create Account' : 'Send Login Link'}
+                {isRegistering ? 'Create Account' : 'Send Login Code'}
                 <ArrowRight className="w-5 h-5" />
               </>
             )}

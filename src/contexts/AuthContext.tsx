@@ -12,7 +12,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string) => Promise<void>;
   register: (firstName: string, lastName: string, email: string) => Promise<void>;
-  verifyToken: (token: string) => Promise<void>;
+  verifyCode: (email: string, code: string) => Promise<void>;
   loginWithToken: (sessionToken: string, userData: User) => void;
   logout: () => void;
 }
@@ -69,15 +69,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await login(email);
   };
 
-  const verifyToken = async (token: string) => {
+  const verifyCode = async (email: string, code: string) => {
     const res = await fetch('/api/auth/verify-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ email, code }),
     });
     if (!res.ok) {
       const error = await res.json();
-      throw new Error(error.error || 'Failed to verify token');
+      throw new Error(error.error || 'Invalid or expired code');
     }
     const { user, sessionToken } = await res.json();
     localStorage.setItem('sessionToken', sessionToken);
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, verifyToken, loginWithToken, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, verifyCode, loginWithToken, logout }}>
       {children}
     </AuthContext.Provider>
   );
