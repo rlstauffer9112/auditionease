@@ -22,7 +22,8 @@ import {
   Undo2,
   ArrowUp,
   ArrowDown,
-  LayoutDashboard
+  LayoutDashboard,
+  Building2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -38,6 +39,8 @@ import { TermsPage } from './components/TermsPage';
 import { PrivacyPage } from './components/PrivacyPage';
 import { RefundPage } from './components/RefundPage';
 import { ContactPage } from './components/ContactPage';
+import { OrganizationPage } from './components/OrganizationPage';
+import { OrgInvitePage } from './components/OrgInvitePage';
 import { PLAN_LIMITS, getPlanLimits, formatLimit } from './planLimits';
 
 // --- Types ---
@@ -84,6 +87,8 @@ interface Audition {
   status: 'open' | 'closed' | 'completed';
   inviteCode: string;
   attributeSetId: number | null;
+  divisionId: number | null;
+  divisionTitle: string | null;
   createdAt: string;
   userCount: number;
   openSlots: number;
@@ -160,7 +165,7 @@ function generateInviteCode(): string {
 function AppContent() {
   const { user, loading: authLoading, logout, loginWithToken } = useAuth();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings' | 'admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings' | 'organization' | 'admin'>('dashboard');
   const [auditions, setAuditions] = useState<Audition[]>([]);
   const [customAttributes, setCustomAttributes] = useState<CustomAttribute[]>([]);
   const [attributeSets, setAttributeSets] = useState<AttributeSet[]>([]);
@@ -179,7 +184,8 @@ function AppContent() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingAudition, setDeletingAudition] = useState(false);
   const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
-  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string, attributeSetId: '' as string });
+  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string, attributeSetId: '' as string, divisionId: '' as string });
+  const [orgDivisions, setOrgDivisions] = useState<{ id: number; title: string }[]>([]);
 
   // Settings states
   const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'attributeSets' | 'billing'>('general');
@@ -239,6 +245,9 @@ function AppContent() {
   const [emailChangeStep, setEmailChangeStep] = useState<'input' | 'verify'>('input');
   const [emailChangeLoading, setEmailChangeLoading] = useState(false);
   const [emailChangeError, setEmailChangeError] = useState('');
+
+  // Organization membership state
+  const [orgMembership, setOrgMembership] = useState<{ organization: any; role: string } | null>(null);
 
   // Subscription state
   const [currentSubscription, setCurrentSubscription] = useState<any>(null);
@@ -351,6 +360,11 @@ function AppContent() {
     return <InvitePage inviteCode={inviteMatch[1]} />;
   }
 
+  const orgInviteMatch = currentPath.match(/^\/org-invite\/([^/]+)$/);
+  if (orgInviteMatch) {
+    return <OrgInvitePage token={orgInviteMatch[1]} />;
+  }
+
   if (currentPath === '/terms') {
     return <TermsPage onBack={navigateToHome} />;
   }
@@ -388,13 +402,14 @@ function AppContent() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [audRes, myAudRes, attrRes, attrSetsRes, repRes, subRes] = await Promise.all([
+      const [audRes, myAudRes, attrRes, attrSetsRes, repRes, subRes, orgRes] = await Promise.all([
         authFetch('/api/auditions'),
         authFetch('/api/my-auditions'),
         authFetch('/api/custom-attributes'),
         authFetch('/api/attribute-sets'),
         authFetch('/api/reports'),
-        authFetch('/api/subscription')
+        authFetch('/api/subscription'),
+        authFetch('/api/organization'),
       ]);
       const audData = await audRes.json();
       const myAudData = await myAudRes.json();
@@ -402,11 +417,24 @@ function AppContent() {
       const attrSetsData = await attrSetsRes.json();
       const repData = await repRes.json();
       const subData = await subRes.json();
+      const orgData = await orgRes.json();
       setAuditions(audData);
       setMyAuditions(myAudData);
       setCustomAttributes(attrData);
       setAttributeSets(attrSetsData);
       setCurrentSubscription(subData.subscription);
+      if (orgData.organization) {
+        setOrgMembership({ organization: orgData.organization, role: orgData.role });
+        const divRes = await authFetch('/api/organization/divisions');
+        const divData = await divRes.json();
+        if (orgData.role === 'manager') {
+          setOrgDivisions((divData.divisions || []).filter((d: any) =>
+            d.managers.some((m: any) => m.userId === user?.id)
+          ));
+        } else {
+          setOrgDivisions((divData.divisions || []).map((d: any) => ({ id: d.id, title: d.title })));
+        }
+      }
       setReportsList(repData.map((r: any) => ({
         ...r,
         criteria: JSON.parse(r.criteria || '[]'),
@@ -453,7 +481,7 @@ function AppContent() {
       }
       return;
     }
-    setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open', attributeSetId: '' });
+    setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open', attributeSetId: '', divisionId: '' });
     setEditingAudition(null);
     setShowAddAudition(true);
   };
@@ -469,7 +497,7 @@ function AppContent() {
       if (res.ok) {
         fetchData();
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '' });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to create audition');
@@ -496,7 +524,7 @@ function AppContent() {
         }
         setEditingAudition(null);
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '' });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to update audition');
@@ -987,6 +1015,15 @@ function AppContent() {
             <Settings size={20} />
             <span className="font-medium">Settings</span>
           </button>
+          {(currentSubscription?.plan === 'enterprise' || (orgMembership && orgMembership.role !== 'manager')) && (
+            <button
+              onClick={() => setActiveTab('organization')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'organization' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
+            >
+              <Building2 size={20} />
+              <span className="font-medium">Organization</span>
+            </button>
+          )}
           {user.id === 10 && (
             <button
               onClick={() => setActiveTab('admin')}
@@ -1207,7 +1244,8 @@ function AppContent() {
                               location: selectedAudition.location || '',
                               inviteCode: selectedAudition.inviteCode,
                               status: selectedAudition.status,
-                              attributeSetId: selectedAudition.attributeSetId ? String(selectedAudition.attributeSetId) : ''
+                              attributeSetId: selectedAudition.attributeSetId ? String(selectedAudition.attributeSetId) : '',
+                              divisionId: selectedAudition.divisionId ? String(selectedAudition.divisionId) : '',
                             });
                             setEditingAudition(selectedAudition);
                             setShowAddAudition(true);
@@ -2687,6 +2725,10 @@ function AppContent() {
             </motion.div>
           )}
 
+          {activeTab === 'organization' && (
+            <OrganizationPage authFetch={authFetch} />
+          )}
+
           {activeTab === 'admin' && user.id === 10 && (
             <AdminPage authFetch={authFetch} />
           )}
@@ -2786,6 +2828,23 @@ function AppContent() {
                     ))}
                   </select>
                   <p className="text-xs text-[#9CA3AF] mt-1">Choose which attributes applicants fill out for this audition.</p>
+                </div>
+              )}
+              {orgMembership && orgDivisions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-1.5">Division</label>
+                  <select
+                    required
+                    value={newAudition.divisionId}
+                    onChange={e => setNewAudition({...newAudition, divisionId: e.target.value})}
+                    className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all bg-white"
+                  >
+                    <option value="">Select a division...</option>
+                    {orgDivisions.map(div => (
+                      <option key={div.id} value={String(div.id)}>{div.title}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[#9CA3AF] mt-1">The division this audition belongs to.</p>
                 </div>
               )}
               <div className="flex gap-3 pt-4">

@@ -51,6 +51,7 @@ export const auditionUserCustomFields = pgTable('audition_user_custom_fields', {
 export const customAttributes = pgTable('custom_attributes', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),
+  divisionId: integer('division_id').references(() => divisions.id),
   label: text('label').notNull(),
   type: text('type').$type<'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect'>().notNull(),
   options: text('options'),
@@ -58,15 +59,18 @@ export const customAttributes = pgTable('custom_attributes', {
   order: integer('order').default(0),
 }, (table) => [
   index('custom_attributes_user_id_idx').on(table.userId),
+  index('custom_attributes_division_id_idx').on(table.divisionId),
 ]);
 
 export const attributeSets = pgTable('attribute_sets', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),
+  divisionId: integer('division_id').references(() => divisions.id),
   name: text('name').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('attribute_sets_user_id_idx').on(table.userId),
+  index('attribute_sets_division_id_idx').on(table.divisionId),
 ]);
 
 export const attributeSetItems = pgTable('attribute_set_items', {
@@ -88,9 +92,11 @@ export const auditions = pgTable('auditions', {
   status: text('status').$type<'open' | 'closed' | 'completed'>().default('open'),
   inviteCode: text('invite_code').notNull().unique(),
   attributeSetId: integer('attribute_set_id').references(() => attributeSets.id),
+  divisionId: integer('division_id').references(() => divisions.id),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('auditions_user_id_idx').on(table.userId),
+  index('auditions_division_id_idx').on(table.divisionId),
 ]);
 
 export const auditionSlots = pgTable('audition_slots', {
@@ -141,4 +147,47 @@ export const reports = pgTable('reports', {
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => [
   index('reports_user_id_idx').on(table.userId),
+]);
+
+export const organizations = pgTable('organizations', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  ownerId: integer('owner_id').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('organizations_owner_id_idx').on(table.ownerId),
+]);
+
+export const orgUsers = pgTable('org_users', {
+  id: serial('id').primaryKey(),
+  organizationId: integer('organization_id').references(() => organizations.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  role: text('role').$type<'admin' | 'manager'>().notNull(),
+  status: text('status').$type<'pending' | 'accepted'>().default('pending').notNull(),
+  inviteToken: text('invite_token').unique(),
+  invitedAt: timestamp('invited_at').defaultNow(),
+  acceptedAt: timestamp('accepted_at'),
+}, (table) => [
+  uniqueIndex('org_users_unique_idx').on(table.organizationId, table.userId),
+  index('org_users_user_id_idx').on(table.userId),
+  index('org_users_org_id_idx').on(table.organizationId),
+]);
+
+export const divisions = pgTable('divisions', {
+  id: serial('id').primaryKey(),
+  organizationId: integer('organization_id').references(() => organizations.id).notNull(),
+  title: text('title').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('divisions_org_id_idx').on(table.organizationId),
+]);
+
+export const divisionUsers = pgTable('division_users', {
+  id: serial('id').primaryKey(),
+  divisionId: integer('division_id').references(() => divisions.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+}, (table) => [
+  uniqueIndex('division_users_unique_idx').on(table.divisionId, table.userId),
+  index('division_users_division_id_idx').on(table.divisionId),
+  index('division_users_user_id_idx').on(table.userId),
 ]);

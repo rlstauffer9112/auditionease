@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -12,7 +12,10 @@ import {
   ChevronRight,
   X,
   Mic2,
+  FolderTree,
+  Building2,
 } from 'lucide-react';
+import { DivisionAttributesEditor } from './DivisionAttributesEditor';
 
 function formatTime(time: string): string {
   const [h, m] = time.split(':').map(Number);
@@ -49,6 +52,8 @@ interface OwnedAudition {
   location: string;
   status: 'open' | 'closed' | 'completed';
   inviteCode: string;
+  divisionId: number | null;
+  divisionTitle: string | null;
   createdAt: string;
   userCount: number;
   openSlots: number;
@@ -80,6 +85,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [bookingSlotId, setBookingSlotId] = useState<number | null>(null);
   const [cancellingAuditionId, setCancellingAuditionId] = useState<number | null>(null);
+  const [myDivisions, setMyDivisions] = useState<{ id: number; title: string; orgName: string; createdAt: string }[]>([]);
+
+  useEffect(() => {
+    authFetch('/api/my-divisions')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setMyDivisions(data); })
+      .catch(() => {});
+  }, []);
 
   const openSlotPicker = async (auditionId: number) => {
     setSlotPickerAuditionId(auditionId);
@@ -272,6 +285,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         )}
 
+        {myDivisions.length > 0 && (
+          <div className="mb-10">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-bold text-[#111827]">My Divisions</h3>
+                <p className="text-sm text-[#6B7280]">Divisions you manage within your organization.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {myDivisions.map(div => (
+                <div
+                  key={div.id}
+                  className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-sm"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex-shrink-0">
+                      <FolderTree size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-[#111827] truncate">{div.title}</h4>
+                      <p className="text-xs text-[#6B7280] flex items-center gap-1 mt-0.5">
+                        <Building2 size={11} />
+                        {div.orgName}
+                      </p>
+                    </div>
+                  </div>
+                  <DivisionAttributesEditor divisionId={div.id} authFetch={authFetch} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -334,6 +380,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <Clock size={13} />
                       {audition.openSlots} open / {audition.filledSlots} filled
                     </span>
+                    {audition.divisionTitle && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-[#EEF2FF] text-[#4F46E5] rounded-full font-medium">
+                        <FolderTree size={11} />
+                        {audition.divisionTitle}
+                      </span>
+                    )}
                   </div>
                 </button>
               ))}

@@ -2,8 +2,8 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions, attributeSets, attributeSetItems } from './src/db/schema';
-import { eq, and, or, asc, gt, lte, desc, sql, inArray } from 'drizzle-orm';
+import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions, attributeSets, attributeSetItems, organizations, orgUsers, divisions, divisionUsers } from './src/db/schema';
+import { eq, and, or, asc, gt, lte, desc, sql, inArray, isNull } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
@@ -126,11 +126,80 @@ async function startServer() {
   };
 
   const verifyAuditionOwnership = async (auditionId: number, userId: number): Promise<boolean> => {
-    const audition = await db.select({ id: auditions.id }).from(auditions)
-      .where(and(eq(auditions.id, auditionId), eq(auditions.userId, userId)))
+    const audition = await db.select({
+      id: auditions.id,
+      userId: auditions.userId,
+      divisionId: auditions.divisionId,
+    }).from(auditions)
+      .where(eq(auditions.id, auditionId))
       .then(rows => rows[0]);
-    return !!audition;
+
+    if (!audition) return false;
+    if (audition.userId === userId) return true;
+    if (!audition.divisionId) return false;
+
+    const division = await db.select({ organizationId: divisions.organizationId })
+      .from(divisions).where(eq(divisions.id, audition.divisionId)).then(r => r[0]);
+    if (!division) return false;
+
+    const org = await db.select({ id: organizations.id }).from(organizations)
+      .where(and(eq(organizations.id, division.organizationId), eq(organizations.ownerId, userId)))
+      .then(r => r[0]);
+    if (org) return true;
+
+    const adminMembership = await db.select({ id: orgUsers.id }).from(orgUsers)
+      .where(and(
+        eq(orgUsers.organizationId, division.organizationId),
+        eq(orgUsers.userId, userId),
+        eq(orgUsers.role, 'admin'),
+        eq(orgUsers.status, 'accepted'),
+      )).then(r => r[0]);
+    if (adminMembership) return true;
+
+    const managerAssignment = await db.select({ id: divisionUsers.id }).from(divisionUsers)
+      .where(and(eq(divisionUsers.divisionId, audition.divisionId), eq(divisionUsers.userId, userId)))
+      .then(r => r[0]);
+    return !!managerAssignment;
   };
+
+  async function getAccessibleAuditionConditions(userId: number) {
+    const orgResult = await getUserOrg(userId);
+    const conditions: any[] = [eq(auditions.userId, userId)];
+
+    if (orgResult) {
+      if (orgResult.role === 'owner' || orgResult.role === 'admin') {
+        const orgDivs = await db.select({ id: divisions.id }).from(divisions)
+          .where(eq(divisions.organizationId, orgResult.org.id));
+        const ids = orgDivs.map(d => d.id);
+        if (ids.length > 0) conditions.push(inArray(auditions.divisionId, ids));
+      } else if (orgResult.role === 'manager') {
+        const myDivs = await db.select({ divisionId: divisionUsers.divisionId }).from(divisionUsers)
+          .where(eq(divisionUsers.userId, userId));
+        const ids = myDivs.map(d => d.divisionId);
+        if (ids.length > 0) conditions.push(inArray(auditions.divisionId, ids));
+      }
+    }
+
+    return or(...conditions)!;
+  }
+
+  async function getAccessibleDivisionIds(userId: number): Promise<number[]> {
+    const orgResult = await getUserOrg(userId);
+    if (!orgResult) return [];
+    if (orgResult.role === 'owner' || orgResult.role === 'admin') {
+      const orgDivs = await db.select({ id: divisions.id }).from(divisions)
+        .where(eq(divisions.organizationId, orgResult.org.id));
+      return orgDivs.map(d => d.id);
+    }
+    const myDivs = await db.select({ divisionId: divisionUsers.divisionId }).from(divisionUsers)
+      .where(eq(divisionUsers.userId, userId));
+    return myDivs.map(d => d.divisionId);
+  }
+
+  function canAccessAttribute(attr: { userId: number; divisionId: number | null }, userId: number, accessibleDivisionIds: number[]): boolean {
+    if (attr.divisionId) return accessibleDivisionIds.includes(attr.divisionId);
+    return attr.userId === userId;
+  }
 
   // --- API Routes ---
 
@@ -272,7 +341,10 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const attrs = await db.select().from(customAttributes).where(eq(customAttributes.userId, userId)).orderBy(asc(customAttributes.order));
+      const divIds = await getAccessibleDivisionIds(userId);
+      const conditions = [and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId))];
+      if (divIds.length > 0) conditions.push(inArray(customAttributes.divisionId, divIds));
+      const attrs = await db.select().from(customAttributes).where(or(...conditions)).orderBy(asc(customAttributes.order));
       res.json(attrs);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch custom attributes' });
@@ -283,10 +355,18 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
+      const { divisionId, ...rest } = req.body;
+      if (divisionId) {
+        const divIds = await getAccessibleDivisionIds(userId);
+        if (!divIds.includes(divisionId)) return res.status(403).json({ error: 'Forbidden' });
+      }
+      const scopeCondition = divisionId
+        ? eq(customAttributes.divisionId, divisionId)
+        : and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId));
       const [maxRow] = await db.select({ maxOrder: sql<number>`coalesce(max(${customAttributes.order}), -1)` })
-        .from(customAttributes).where(eq(customAttributes.userId, userId));
+        .from(customAttributes).where(scopeCondition);
       const nextOrder = (maxRow?.maxOrder ?? -1) + 1;
-      const newAttr = await db.insert(customAttributes).values({ ...req.body, userId, order: nextOrder }).returning();
+      const newAttr = await db.insert(customAttributes).values({ ...rest, userId, divisionId: divisionId || null, order: nextOrder }).returning();
       res.json(newAttr[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create custom attribute' });
@@ -299,8 +379,11 @@ async function startServer() {
     try {
       const { orderedIds } = req.body as { orderedIds: number[] };
       if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds must be an array' });
+      const divIds = await getAccessibleDivisionIds(userId);
+      const conditions = [and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId))];
+      if (divIds.length > 0) conditions.push(inArray(customAttributes.divisionId, divIds));
       const existing = await db.select({ id: customAttributes.id }).from(customAttributes)
-        .where(eq(customAttributes.userId, userId));
+        .where(or(...conditions));
       const ownedIds = new Set(existing.map(r => r.id));
       for (const id of orderedIds) {
         if (!ownedIds.has(id)) return res.status(403).json({ error: 'Forbidden' });
@@ -320,7 +403,9 @@ async function startServer() {
     try {
       const attrId = parseInt(req.params.id);
       const attr = await db.select().from(customAttributes).where(eq(customAttributes.id, attrId)).then(rows => rows[0]);
-      if (!attr || attr.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      if (!attr) return res.status(404).json({ error: 'Not found' });
+      const divIds = await getAccessibleDivisionIds(userId);
+      if (!canAccessAttribute(attr, userId, divIds)) return res.status(403).json({ error: 'Forbidden' });
       await db.delete(auditionUserCustomFields).where(eq(auditionUserCustomFields.customAttributeId, attrId));
       await db.delete(attributeSetItems).where(eq(attributeSetItems.customAttributeId, attrId));
       await db.delete(customAttributes).where(eq(customAttributes.id, attrId));
@@ -335,7 +420,10 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const sets = await db.select().from(attributeSets).where(eq(attributeSets.userId, userId));
+      const divIds = await getAccessibleDivisionIds(userId);
+      const conditions = [and(eq(attributeSets.userId, userId), isNull(attributeSets.divisionId))];
+      if (divIds.length > 0) conditions.push(inArray(attributeSets.divisionId, divIds));
+      const sets = await db.select().from(attributeSets).where(or(...conditions));
       const allItems = sets.length > 0
         ? await db.select().from(attributeSetItems).where(inArray(attributeSetItems.attributeSetId, sets.map(s => s.id)))
         : [];
@@ -355,11 +443,15 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const { name, attributeIds } = req.body as { name: string; attributeIds: number[] };
+      const { name, attributeIds, divisionId } = req.body as { name: string; attributeIds: number[]; divisionId?: number };
       if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
-      const [newSet] = await db.insert(attributeSets).values({ userId, name: name.trim() }).returning();
+      const divIds = await getAccessibleDivisionIds(userId);
+      if (divisionId && !divIds.includes(divisionId)) return res.status(403).json({ error: 'Forbidden' });
+      const [newSet] = await db.insert(attributeSets).values({ userId, divisionId: divisionId || null, name: name.trim() }).returning();
       if (Array.isArray(attributeIds) && attributeIds.length > 0) {
-        const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(eq(customAttributes.userId, userId));
+        const attrConditions = [and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId))];
+        if (divIds.length > 0) attrConditions.push(inArray(customAttributes.divisionId, divIds));
+        const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(or(...attrConditions));
         const ownedIds = new Set(owned.map(r => r.id));
         const valid = attributeIds.filter(id => ownedIds.has(id));
         if (valid.length > 0) {
@@ -378,7 +470,9 @@ async function startServer() {
     try {
       const setId = parseInt(req.params.id);
       const existing = await db.select().from(attributeSets).where(eq(attributeSets.id, setId)).then(rows => rows[0]);
-      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      const divIds = await getAccessibleDivisionIds(userId);
+      if (!canAccessAttribute(existing, userId, divIds)) return res.status(403).json({ error: 'Forbidden' });
       const { name, attributeIds } = req.body as { name?: string; attributeIds?: number[] };
       if (name !== undefined) {
         if (!name.trim()) return res.status(400).json({ error: 'Name is required' });
@@ -387,7 +481,9 @@ async function startServer() {
       if (Array.isArray(attributeIds)) {
         await db.delete(attributeSetItems).where(eq(attributeSetItems.attributeSetId, setId));
         if (attributeIds.length > 0) {
-          const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(eq(customAttributes.userId, userId));
+          const attrConditions = [and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId))];
+          if (divIds.length > 0) attrConditions.push(inArray(customAttributes.divisionId, divIds));
+          const owned = await db.select({ id: customAttributes.id }).from(customAttributes).where(or(...attrConditions));
           const ownedIds = new Set(owned.map(r => r.id));
           const valid = attributeIds.filter(id => ownedIds.has(id));
           if (valid.length > 0) {
@@ -409,7 +505,9 @@ async function startServer() {
     try {
       const setId = parseInt(req.params.id);
       const existing = await db.select().from(attributeSets).where(eq(attributeSets.id, setId)).then(rows => rows[0]);
-      if (!existing || existing.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      const divIds = await getAccessibleDivisionIds(userId);
+      if (!canAccessAttribute(existing, userId, divIds)) return res.status(403).json({ error: 'Forbidden' });
       await db.update(auditions).set({ attributeSetId: null }).where(eq(auditions.attributeSetId, setId));
       await db.delete(attributeSetItems).where(eq(attributeSetItems.attributeSetId, setId));
       await db.delete(attributeSets).where(eq(attributeSets.id, setId));
@@ -525,6 +623,7 @@ async function startServer() {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
+      const whereCondition = await getAccessibleAuditionConditions(userId);
       const allAuditions = await db
         .select({
           id: auditions.id,
@@ -536,13 +635,15 @@ async function startServer() {
           status: auditions.status,
           inviteCode: auditions.inviteCode,
           attributeSetId: auditions.attributeSetId,
+          divisionId: auditions.divisionId,
+          divisionTitle: sql<string | null>`(select title from divisions where divisions.id = auditions.division_id)`,
           createdAt: auditions.createdAt,
           userCount: sql<number>`${sql.raw("cast((select count(*) from audition_users where audition_users.audition_id = auditions.id) as int)")}`,
           openSlots: sql<number>`${sql.raw("cast((select count(*) from audition_slots where audition_slots.audition_id = auditions.id and audition_slots.status = 'available') as int)")}`,
           filledSlots: sql<number>`${sql.raw("cast((select count(*) from audition_slots where audition_slots.audition_id = auditions.id and audition_slots.status in ('booked', 'completed', 'no-show')) as int)")}`,
         })
         .from(auditions)
-        .where(eq(auditions.userId, userId));
+        .where(whereCondition);
       res.json(allAuditions);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch auditions' });
@@ -568,7 +669,7 @@ async function startServer() {
           });
         }
       }
-      const { inviteCode, attributeSetId, ...rest } = req.body;
+      const { inviteCode, attributeSetId, divisionId: rawDivisionId, ...rest } = req.body;
       const code = (inviteCode || generateInviteCode()).trim();
       if (code.length === 0 || code.length > 31) {
         return res.status(400).json({ error: 'Invite code must be between 1 and 31 characters' });
@@ -582,7 +683,31 @@ async function startServer() {
         return res.status(409).json({ error: 'Invite code is already in use' });
       }
       const setId = attributeSetId ? parseInt(attributeSetId) : null;
-      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code, attributeSetId: setId || null }).returning();
+
+      let divisionId: number | null = null;
+      const orgResult = await getUserOrg(userId);
+      if (orgResult) {
+        if (!rawDivisionId) {
+          return res.status(400).json({ error: 'Organization members must select a division' });
+        }
+        divisionId = parseInt(rawDivisionId);
+        const div = await db.select().from(divisions)
+          .where(and(eq(divisions.id, divisionId), eq(divisions.organizationId, orgResult.org.id)))
+          .then(r => r[0]);
+        if (!div) {
+          return res.status(400).json({ error: 'Invalid division' });
+        }
+        if (orgResult.role === 'manager') {
+          const assignment = await db.select().from(divisionUsers)
+            .where(and(eq(divisionUsers.divisionId, divisionId), eq(divisionUsers.userId, userId)))
+            .then(r => r[0]);
+          if (!assignment) {
+            return res.status(403).json({ error: 'You are not assigned to this division' });
+          }
+        }
+      }
+
+      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code, attributeSetId: setId || null, divisionId }).returning();
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
@@ -889,7 +1014,8 @@ async function startServer() {
       const criteria: any[] = JSON.parse(report.criteria || '[]');
       const reportColumns: any[] = JSON.parse(report.columns || '[]');
 
-      const userAuditions = await db.select().from(auditions).where(eq(auditions.userId, userId));
+      const accessCondition = await getAccessibleAuditionConditions(userId);
+      const userAuditions = await db.select().from(auditions).where(accessCondition);
       if (userAuditions.length === 0) return res.json({ columns: reportColumns, rows: [] });
 
       const auditionIds = userAuditions.map(a => a.id);
@@ -1048,9 +1174,12 @@ async function startServer() {
         } else {
           attrs = [];
         }
+      } else if (audition.divisionId) {
+        attrs = await db.select().from(customAttributes)
+          .where(eq(customAttributes.divisionId, audition.divisionId));
       } else {
         attrs = await db.select().from(customAttributes)
-          .where(eq(customAttributes.userId, audition.userId));
+          .where(and(eq(customAttributes.userId, audition.userId), isNull(customAttributes.divisionId)));
       }
       res.json({
         audition: { id: audition.id, title: audition.title, description: audition.description, date: audition.date, location: audition.location, status: audition.status },
@@ -1826,6 +1955,448 @@ async function startServer() {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to verify email change' });
+    }
+  });
+
+  // --- Organization Routes ---
+
+  // Helper: get the org the current user owns or belongs to
+  async function getUserOrg(userId: number) {
+    const owned = await db.select().from(organizations).where(eq(organizations.ownerId, userId)).then(r => r[0]);
+    if (owned) return { org: owned, role: 'owner' as const };
+    const membership = await db.select().from(orgUsers)
+      .where(and(eq(orgUsers.userId, userId), eq(orgUsers.status, 'accepted')))
+      .then(r => r[0]);
+    if (membership) {
+      const org = await db.select().from(organizations).where(eq(organizations.id, membership.organizationId)).then(r => r[0]);
+      return org ? { org, role: membership.role } : null;
+    }
+    return null;
+  }
+
+  // Get current user's organization
+  app.get('/api/organization', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result) return res.json({ organization: null, role: null });
+      res.json({ organization: result.org, role: result.role });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch organization' });
+    }
+  });
+
+  // Create organization (enterprise users only)
+  app.post('/api/organization', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const sub = await db.select().from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active'), eq(subscriptions.plan, 'enterprise')))
+        .then(r => r[0]);
+      if (!sub) return res.status(403).json({ error: 'Enterprise subscription required' });
+      const existing = await getUserOrg(userId);
+      if (existing) return res.status(400).json({ error: 'You already belong to an organization' });
+      const { name } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'Organization name is required' });
+      const [org] = await db.insert(organizations).values({ name: name.trim(), ownerId: userId }).returning();
+      res.json({ organization: org });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to create organization' });
+    }
+  });
+
+  // Update organization settings
+  app.patch('/api/organization', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const { name } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'Organization name is required' });
+      const [updated] = await db.update(organizations).set({ name: name.trim() }).where(eq(organizations.id, result.org.id)).returning();
+      res.json({ organization: updated });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update organization' });
+    }
+  });
+
+  // List org users
+  app.get('/api/organization/users', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result) return res.status(404).json({ error: 'No organization found' });
+      const members = await db.select({
+        id: orgUsers.id,
+        userId: orgUsers.userId,
+        role: orgUsers.role,
+        status: orgUsers.status,
+        invitedAt: orgUsers.invitedAt,
+        acceptedAt: orgUsers.acceptedAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+      }).from(orgUsers)
+        .innerJoin(users, eq(orgUsers.userId, users.id))
+        .where(eq(orgUsers.organizationId, result.org.id));
+      const owner = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users).where(eq(users.id, result.org.ownerId)).then(r => r[0]);
+      res.json({ members, owner });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch organization users' });
+    }
+  });
+
+  // Invite user to organization
+  app.post('/api/organization/invite', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized to invite users' });
+      const { email, role } = req.body;
+      if (!email || !email.trim()) return res.status(400).json({ error: 'Email is required' });
+      if (role !== 'admin' && role !== 'manager') return res.status(400).json({ error: 'Role must be admin or manager' });
+
+      // Check if user already belongs to an org
+      let targetUser = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).then(r => r[0]);
+      if (targetUser) {
+        const existingOrg = await getUserOrg(targetUser.id);
+        if (existingOrg) return res.status(400).json({ error: 'This user already belongs to an organization' });
+        const existingInvite = await db.select().from(orgUsers)
+          .where(and(eq(orgUsers.organizationId, result.org.id), eq(orgUsers.userId, targetUser.id)))
+          .then(r => r[0]);
+        if (existingInvite) return res.status(400).json({ error: 'This user has already been invited' });
+      }
+
+      const inviteToken = crypto.randomBytes(32).toString('hex');
+
+      if (!targetUser) {
+        // Create a placeholder account
+        [targetUser] = await db.insert(users).values({
+          firstName: '',
+          lastName: '',
+          email: email.trim().toLowerCase(),
+        }).returning();
+      }
+
+      await db.insert(orgUsers).values({
+        organizationId: result.org.id,
+        userId: targetUser.id,
+        role,
+        status: 'pending',
+        inviteToken,
+      });
+
+      // Send invite email
+      const inviteUrl = `${APP_URL}/org-invite/${inviteToken}`;
+      try {
+        if (process.env.BREVO_API_KEY) {
+          await client.transactionalEmails.sendTransacEmail({
+            subject: `You've been invited to join ${result.org.name} on AuditionEase`,
+            htmlContent: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>You've been invited!</h2>
+                <p>You've been invited to join <strong>${result.org.name}</strong> as ${role === 'admin' ? 'an Admin' : 'a Manager'} on AuditionEase.</p>
+                <p><a href="${inviteUrl}" style="display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">Accept Invitation</a></p>
+                <p style="color: #6B7280; font-size: 14px;">Or copy this link: ${inviteUrl}</p>
+              </div>
+            `,
+            sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
+            to: [{ email: email.trim().toLowerCase() }],
+          });
+        } else {
+          console.log('--- ORG INVITE (No Brevo API Key) ---');
+          console.log(`Invite URL: ${inviteUrl}`);
+          console.log('-----------------------------------------');
+        }
+      } catch (emailErr) {
+        console.error('Invite email send failed:', emailErr);
+        console.log('--- ORG INVITE (Email failed) ---');
+        console.log(`Invite URL: ${inviteUrl}`);
+        console.log('-----------------------------------------');
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to invite user' });
+    }
+  });
+
+  // Remove user from organization
+  app.delete('/api/organization/users/:orgUserId', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const orgUserId = parseInt(req.params.orgUserId);
+      const member = await db.select().from(orgUsers).where(eq(orgUsers.id, orgUserId)).then(r => r[0]);
+      if (!member || member.organizationId !== result.org.id)
+        return res.status(404).json({ error: 'Member not found' });
+      // Remove from all divisions first
+      await db.delete(divisionUsers).where(eq(divisionUsers.userId, member.userId));
+      await db.delete(orgUsers).where(eq(orgUsers.id, orgUserId));
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to remove user' });
+    }
+  });
+
+  // Update org user role
+  app.patch('/api/organization/users/:orgUserId', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const orgUserId = parseInt(req.params.orgUserId);
+      const { role } = req.body;
+      if (role !== 'admin' && role !== 'manager') return res.status(400).json({ error: 'Role must be admin or manager' });
+      const member = await db.select().from(orgUsers).where(eq(orgUsers.id, orgUserId)).then(r => r[0]);
+      if (!member || member.organizationId !== result.org.id)
+        return res.status(404).json({ error: 'Member not found' });
+      // If changing from admin to manager, division assignments are kept
+      await db.update(orgUsers).set({ role }).where(eq(orgUsers.id, orgUserId));
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update user role' });
+    }
+  });
+
+  // Accept org invite
+  app.get('/api/org-invite/:token', async (req, res) => {
+    try {
+      const invite = await db.select({
+        id: orgUsers.id,
+        organizationId: orgUsers.organizationId,
+        userId: orgUsers.userId,
+        role: orgUsers.role,
+        status: orgUsers.status,
+        orgName: organizations.name,
+        email: users.email,
+        firstName: users.firstName,
+      }).from(orgUsers)
+        .innerJoin(organizations, eq(orgUsers.organizationId, organizations.id))
+        .innerJoin(users, eq(orgUsers.userId, users.id))
+        .where(eq(orgUsers.inviteToken, req.params.token))
+        .then(r => r[0]);
+      if (!invite) return res.status(404).json({ error: 'Invalid invite link' });
+      if (invite.status === 'accepted') return res.json({ alreadyAccepted: true, orgName: invite.orgName });
+      res.json({ orgName: invite.orgName, email: invite.email, role: invite.role, needsProfile: !invite.firstName });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch invite' });
+    }
+  });
+
+  app.post('/api/org-invite/:token/accept', async (req, res) => {
+    try {
+      const invite = await db.select().from(orgUsers)
+        .where(and(eq(orgUsers.inviteToken, req.params.token), eq(orgUsers.status, 'pending')))
+        .then(r => r[0]);
+      if (!invite) return res.status(404).json({ error: 'Invalid or expired invite' });
+
+      const { firstName, lastName } = req.body;
+      const user = await db.select().from(users).where(eq(users.id, invite.userId)).then(r => r[0]);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Update profile if needed (new user created from invite)
+      if (!user.firstName && firstName) {
+        await db.update(users).set({ firstName, lastName: lastName || '' }).where(eq(users.id, user.id));
+      }
+
+      await db.update(orgUsers).set({ status: 'accepted', acceptedAt: new Date(), inviteToken: null }).where(eq(orgUsers.id, invite.id));
+
+      // Issue a session token so they're logged in
+      const sessionToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '90d' });
+      const updatedUser = await db.select().from(users).where(eq(users.id, user.id)).then(r => r[0]);
+      res.json({ user: updatedUser, sessionToken });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to accept invite' });
+    }
+  });
+
+  // Get divisions the current user manages
+  app.get('/api/my-divisions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const assignments = await db.select({
+        id: divisions.id,
+        title: divisions.title,
+        organizationId: divisions.organizationId,
+        createdAt: divisions.createdAt,
+        orgName: organizations.name,
+      }).from(divisionUsers)
+        .innerJoin(divisions, eq(divisionUsers.divisionId, divisions.id))
+        .innerJoin(organizations, eq(divisions.organizationId, organizations.id))
+        .where(eq(divisionUsers.userId, userId))
+        .orderBy(asc(divisions.title));
+      res.json(assignments);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch divisions' });
+    }
+  });
+
+  // --- Division Routes ---
+
+  // List divisions for current user's org
+  app.get('/api/organization/divisions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result) return res.status(404).json({ error: 'No organization found' });
+      const divs = await db.select().from(divisions).where(eq(divisions.organizationId, result.org.id)).orderBy(asc(divisions.title));
+      // Get manager assignments for each division
+      const divIds = divs.map(d => d.id);
+      let assignments: any[] = [];
+      if (divIds.length > 0) {
+        assignments = await db.select({
+          divisionId: divisionUsers.divisionId,
+          userId: divisionUsers.userId,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+        }).from(divisionUsers)
+          .innerJoin(users, eq(divisionUsers.userId, users.id))
+          .where(inArray(divisionUsers.divisionId, divIds));
+      }
+      const divsWithManagers = divs.map(d => ({
+        ...d,
+        managers: assignments.filter(a => a.divisionId === d.id),
+      }));
+      res.json({ divisions: divsWithManagers });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch divisions' });
+    }
+  });
+
+  // Create division
+  app.post('/api/organization/divisions', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const { title } = req.body;
+      if (!title || !title.trim()) return res.status(400).json({ error: 'Division title is required' });
+      const [div] = await db.insert(divisions).values({ organizationId: result.org.id, title: title.trim() }).returning();
+      res.json({ division: div });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to create division' });
+    }
+  });
+
+  // Update division
+  app.patch('/api/organization/divisions/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const divId = parseInt(req.params.id);
+      const div = await db.select().from(divisions).where(eq(divisions.id, divId)).then(r => r[0]);
+      if (!div || div.organizationId !== result.org.id) return res.status(404).json({ error: 'Division not found' });
+      const { title } = req.body;
+      if (!title || !title.trim()) return res.status(400).json({ error: 'Division title is required' });
+      const [updated] = await db.update(divisions).set({ title: title.trim() }).where(eq(divisions.id, divId)).returning();
+      res.json({ division: updated });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update division' });
+    }
+  });
+
+  // Delete division
+  app.delete('/api/organization/divisions/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const divId = parseInt(req.params.id);
+      const div = await db.select().from(divisions).where(eq(divisions.id, divId)).then(r => r[0]);
+      if (!div || div.organizationId !== result.org.id) return res.status(404).json({ error: 'Division not found' });
+      const auditionCount = await db.select({ count: sql<number>`cast(count(*) as int)` })
+        .from(auditions).where(eq(auditions.divisionId, divId)).then(r => r[0].count);
+      if (auditionCount > 0) {
+        return res.status(400).json({ error: 'Cannot delete a division that has auditions. Reassign or delete them first.' });
+      }
+      await db.delete(divisionUsers).where(eq(divisionUsers.divisionId, divId));
+      await db.delete(divisions).where(eq(divisions.id, divId));
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to delete division' });
+    }
+  });
+
+  // Assign manager to division
+  app.post('/api/organization/divisions/:id/managers', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const divId = parseInt(req.params.id);
+      const div = await db.select().from(divisions).where(eq(divisions.id, divId)).then(r => r[0]);
+      if (!div || div.organizationId !== result.org.id) return res.status(404).json({ error: 'Division not found' });
+      const { managerId } = req.body;
+      // Verify the manager belongs to this org with manager role
+      const member = await db.select().from(orgUsers)
+        .where(and(eq(orgUsers.organizationId, result.org.id), eq(orgUsers.userId, managerId), eq(orgUsers.status, 'accepted')))
+        .then(r => r[0]);
+      if (!member) return res.status(400).json({ error: 'User is not a member of this organization' });
+      if (member.role !== 'manager') return res.status(400).json({ error: 'Only managers can be assigned to divisions' });
+      await db.insert(divisionUsers).values({ divisionId: divId, userId: managerId }).onConflictDoNothing();
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to assign manager' });
+    }
+  });
+
+  // Remove manager from division
+  app.delete('/api/organization/divisions/:id/managers/:managerId', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await getUserOrg(userId);
+      if (!result || (result.role !== 'owner' && result.role !== 'admin'))
+        return res.status(403).json({ error: 'Not authorized' });
+      const divId = parseInt(req.params.id);
+      const managerId = parseInt(req.params.managerId);
+      const div = await db.select().from(divisions).where(eq(divisions.id, divId)).then(r => r[0]);
+      if (!div || div.organizationId !== result.org.id) return res.status(404).json({ error: 'Division not found' });
+      await db.delete(divisionUsers).where(and(eq(divisionUsers.divisionId, divId), eq(divisionUsers.userId, managerId)));
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to remove manager' });
     }
   });
 
