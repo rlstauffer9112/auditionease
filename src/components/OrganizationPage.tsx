@@ -341,7 +341,7 @@ export function OrganizationPage({ authFetch }: Props) {
   const tabs = [
     { key: 'settings' as const, label: 'General', icon: Building2 },
     { key: 'divisions' as const, label: 'Divisions', icon: FolderTree },
-    { key: 'users' as const, label: 'Users', icon: Users },
+    { key: 'users' as const, label: 'Team Members', icon: Users },
   ];
 
   const acceptedManagers = members.filter(m => m.role === 'manager' && m.status === 'accepted');
@@ -534,6 +534,7 @@ export function OrganizationPage({ authFetch }: Props) {
                           </div>
                           {/* Managers */}
                           <div className="ml-11">
+                            <p className="text-[10px] font-bold text-[#9CA3AF] uppercase tracking-wider mb-1.5">Managers</p>
                             {div.managers.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-2">
                                 {div.managers.map(m => (
@@ -591,6 +592,8 @@ export function OrganizationPage({ authFetch }: Props) {
                                 </button>
                               )
                             )}
+                          </div>
+                          <div className="border-t border-[#E5E7EB] mt-3 pt-1">
                             <DivisionAttributesEditor divisionId={div.id} authFetch={authFetch} />
                           </div>
                         </>

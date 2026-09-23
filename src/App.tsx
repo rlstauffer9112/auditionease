@@ -425,6 +425,11 @@ function AppContent() {
       setCurrentSubscription(subData.subscription);
       if (orgData.organization) {
         setOrgMembership({ organization: orgData.organization, role: orgData.role });
+        setSetupTab(prev => {
+          if (prev === 'attributes' || prev === 'attributeSets') return 'general';
+          if (prev === 'billing' && orgData.role !== 'owner') return 'general';
+          return prev;
+        });
         const divRes = await authFetch('/api/organization/divisions');
         const divData = await divRes.json();
         if (orgData.role === 'manager') {
@@ -1455,7 +1460,7 @@ function AppContent() {
                   className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white font-medium focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                 >
                   <option value="" disabled>Choose an audition...</option>
-                  {auditions.map(a => (
+                  {[...auditions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(a => (
                     <option key={a.id} value={a.id}>{a.title} — {a.date}</option>
                   ))}
                 </select>
@@ -1553,7 +1558,7 @@ function AppContent() {
                   className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white font-medium focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                 >
                   <option value="" disabled>Choose an audition...</option>
-                  {auditions.map(a => (
+                  {[...auditions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(a => (
                     <option key={a.id} value={a.id}>{a.title} — {a.date}</option>
                   ))}
                 </select>
@@ -1702,35 +1707,41 @@ function AppContent() {
                   <Settings size={16} />
                   General
                 </button>
-                <button
-                  onClick={() => setSetupTab('attributes')}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
-                >
-                  <ClipboardList size={16} />
-                  Applicant Attributes
-                </button>
-                <button
-                  onClick={() => setSetupTab('attributeSets')}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributeSets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
-                >
-                  <Filter size={16} />
-                  Attribute Sets
-                </button>
-                <button
-                  onClick={() => {
-                    setSetupTab('billing');
-                    setSubscriptionLoading(true);
-                    authFetch('/api/subscription')
-                      .then(r => r.json())
-                      .then(data => setCurrentSubscription(data.subscription))
-                      .catch(() => {})
-                      .finally(() => setSubscriptionLoading(false));
-                  }}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'billing' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
-                >
-                  <CreditCard size={16} />
-                  Billing
-                </button>
+                {!orgMembership && (
+                  <>
+                    <button
+                      onClick={() => setSetupTab('attributes')}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                    >
+                      <ClipboardList size={16} />
+                      Applicant Attributes
+                    </button>
+                    <button
+                      onClick={() => setSetupTab('attributeSets')}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributeSets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                    >
+                      <Filter size={16} />
+                      Attribute Sets
+                    </button>
+                  </>
+                )}
+                {(!orgMembership || orgMembership.role === 'owner') && (
+                  <button
+                    onClick={() => {
+                      setSetupTab('billing');
+                      setSubscriptionLoading(true);
+                      authFetch('/api/subscription')
+                        .then(r => r.json())
+                        .then(data => setCurrentSubscription(data.subscription))
+                        .catch(() => {})
+                        .finally(() => setSubscriptionLoading(false));
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'billing' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                  >
+                    <CreditCard size={16} />
+                    Billing
+                  </button>
+                )}
               </div>
 
               {setupTab === 'general' && (
@@ -1933,7 +1944,7 @@ function AppContent() {
                 </div>
               )}
 
-              {setupTab === 'attributes' && (
+              {setupTab === 'attributes' && !orgMembership && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1">
                     <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
@@ -2040,7 +2051,7 @@ function AppContent() {
                 </div>
               )}
 
-              {setupTab === 'attributeSets' && (
+              {setupTab === 'attributeSets' && !orgMembership && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1">
                     <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
@@ -2058,7 +2069,26 @@ function AppContent() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Select Attributes</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-bold text-[#6B7280] uppercase">Select Attributes</label>
+                            {customAttributes.length > 0 && (
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const allIds = customAttributes.map(a => a.id);
+                                    editingSet ? setEditSetAttrIds(allIds) : setNewSetAttrIds(allIds);
+                                  }}
+                                  className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                                >Select All</button>
+                                <button
+                                  type="button"
+                                  onClick={() => editingSet ? setEditSetAttrIds([]) : setNewSetAttrIds([])}
+                                  className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                                >Clear All</button>
+                              </div>
+                            )}
+                          </div>
                           {customAttributes.length === 0 ? (
                             <p className="text-sm text-[#6B7280]">No attributes defined yet. Create some in the Applicant Attributes tab first.</p>
                           ) : (
@@ -2162,7 +2192,7 @@ function AppContent() {
                 </div>
               )}
 
-              {setupTab === 'billing' && (
+              {setupTab === 'billing' && (!orgMembership || orgMembership.role === 'owner') && (
                 <div className="space-y-8">
                   <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
                     <h3 className="text-lg font-bold text-[#374151] mb-6">Current Plan</h3>
@@ -3148,9 +3178,9 @@ function AppContent() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
+            className="bg-white w-full max-w-lg max-h-[90vh] rounded-3xl p-8 shadow-2xl flex flex-col"
           >
-            <div className="flex justify-between items-start gap-3 mb-6">
+            <div className="flex justify-between items-start gap-3 mb-6 shrink-0">
               <div className="flex items-center gap-4 min-w-0">
                 <div className="w-12 h-12 bg-[#EEF2FF] text-[#4F46E5] rounded-2xl flex items-center justify-center font-bold text-xl shrink-0">
                   {(editingUserDetails ? editUserForm.firstName : showUserDetails.firstName).charAt(0) || '?'}
@@ -3169,7 +3199,7 @@ function AppContent() {
 
             {!editingUserDetails ? (
               <>
-                <div className="space-y-6">
+                <div className="overflow-y-auto min-h-0 flex-1 space-y-6 pr-6">
                   <div className="space-y-4">
                     <div>
                       <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Email</p>
@@ -3213,7 +3243,7 @@ function AppContent() {
                   )}
                 </div>
 
-                <div className="flex gap-3 mt-8">
+                <div className="flex gap-3 mt-8 shrink-0">
                   <button
                     onClick={() => { setShowUserDetails(null); setEditingUserDetails(false); }}
                     className="flex-1 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"
@@ -3241,7 +3271,7 @@ function AppContent() {
               </>
             ) : (
               <>
-                <div className="space-y-4">
+                <div className="overflow-y-auto min-h-0 flex-1 space-y-4 pr-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">First Name</label>
@@ -3349,7 +3379,7 @@ function AppContent() {
                   })()}
                 </div>
 
-                <div className="flex gap-3 mt-8">
+                <div className="flex gap-3 mt-8 shrink-0">
                   <button
                     onClick={() => setEditingUserDetails(false)}
                     className="flex-1 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"

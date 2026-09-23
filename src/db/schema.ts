@@ -50,7 +50,7 @@ export const auditionUserCustomFields = pgTable('audition_user_custom_fields', {
 
 export const customAttributes = pgTable('custom_attributes', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id).notNull(),
+  userId: integer('user_id').references(() => users.id),
   divisionId: integer('division_id').references(() => divisions.id),
   label: text('label').notNull(),
   type: text('type').$type<'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect'>().notNull(),
@@ -64,7 +64,7 @@ export const customAttributes = pgTable('custom_attributes', {
 
 export const attributeSets = pgTable('attribute_sets', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id).notNull(),
+  userId: integer('user_id').references(() => users.id),
   divisionId: integer('division_id').references(() => divisions.id),
   name: text('name').notNull(),
   createdAt: timestamp('created_at').defaultNow(),

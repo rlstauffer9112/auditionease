@@ -169,7 +169,7 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
         className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1"
       >
         <ClipboardList size={12} />
-        Manage Attributes
+        Audition Attributes
         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
 
@@ -325,7 +325,24 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
                   <p className="text-xs text-[#6B7280] mt-3">No attributes for this division yet. Create some in the Attributes tab first.</p>
                 ) : (
                   <div className="mt-3">
-                    <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Select Attributes</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-[#6B7280] uppercase">Select Attributes</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const allIds = attributes.map(a => a.id);
+                            editingSet ? setEditSetAttrIds(allIds) : setNewSetAttrIds(allIds);
+                          }}
+                          className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                        >Select All</button>
+                        <button
+                          type="button"
+                          onClick={() => editingSet ? setEditSetAttrIds([]) : setNewSetAttrIds([])}
+                          className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                        >Clear All</button>
+                      </div>
+                    </div>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto border border-[#E5E7EB] rounded-lg p-2">
                       {attributes.map(attr => {
                         const selected = editingSet ? editSetAttrIds.includes(attr.id) : newSetAttrIds.includes(attr.id);

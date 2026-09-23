@@ -342,8 +342,11 @@ async function startServer() {
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
       const divIds = await getAccessibleDivisionIds(userId);
-      const conditions = [and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId))];
+      const userOrg = await getUserOrg(userId);
+      const conditions: any[] = [];
+      if (!userOrg) conditions.push(and(eq(customAttributes.userId, userId), isNull(customAttributes.divisionId)));
       if (divIds.length > 0) conditions.push(inArray(customAttributes.divisionId, divIds));
+      if (conditions.length === 0) return res.json([]);
       const attrs = await db.select().from(customAttributes).where(or(...conditions)).orderBy(asc(customAttributes.order));
       res.json(attrs);
     } catch (err) {
@@ -421,8 +424,11 @@ async function startServer() {
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
       const divIds = await getAccessibleDivisionIds(userId);
-      const conditions = [and(eq(attributeSets.userId, userId), isNull(attributeSets.divisionId))];
+      const userOrg = await getUserOrg(userId);
+      const conditions: any[] = [];
+      if (!userOrg) conditions.push(and(eq(attributeSets.userId, userId), isNull(attributeSets.divisionId)));
       if (divIds.length > 0) conditions.push(inArray(attributeSets.divisionId, divIds));
+      if (conditions.length === 0) return res.json([]);
       const sets = await db.select().from(attributeSets).where(or(...conditions));
       const allItems = sets.length > 0
         ? await db.select().from(attributeSetItems).where(inArray(attributeSetItems.attributeSetId, sets.map(s => s.id)))
