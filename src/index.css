@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+/* Printed reports: tight margins, white page, table headers repeated on every page */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}

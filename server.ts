@@ -12,6 +12,8 @@ import Stripe from 'stripe';
 import { getPlanLimits } from './src/planLimits';
 import { evaluateRound, type AdvanceRule } from './src/lib/roundScoring';
 import { normalizeAuditionSettings, mergeAuditionSettings } from './src/lib/auditionSettings';
+import { registerReportRoutes } from './src/server/reports';
+import { TIMEZONE_HEADER, resolveTimeZone, formatLongDateInZone } from './src/lib/dates';
 
 const client = new BrevoClient({ apiKey: process.env.BREVO_API_KEY || '' });
 
@@ -1847,229 +1849,8 @@ async function startServer() {
     }
   });
 
-  // Reports
-  app.get('/api/reports', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const userReports = await db.select().from(reports).where(eq(reports.userId, userId)).orderBy(desc(reports.createdAt));
-      res.json(userReports);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch reports' });
-    }
-  });
-
-  app.post('/api/reports', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const { name, criteria, columns } = req.body;
-      const newReport = await db.insert(reports).values({ userId, name, criteria, columns }).returning();
-      res.json(newReport[0]);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to create report' });
-    }
-  });
-
-  app.put('/api/reports/:id', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const reportId = parseInt(req.params.id);
-      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
-      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
-      const { name, criteria, columns } = req.body;
-      const updated = await db.update(reports).set({ name, criteria, columns, updatedAt: new Date() }).where(eq(reports.id, reportId)).returning();
-      res.json(updated[0]);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to update report' });
-    }
-  });
-
-  app.delete('/api/reports/:id', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const reportId = parseInt(req.params.id);
-      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
-      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
-      await db.delete(reports).where(eq(reports.id, reportId));
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to delete report' });
-    }
-  });
-
-  app.post('/api/reports/:id/run', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-      const reportId = parseInt(req.params.id);
-      const report = await db.select().from(reports).where(eq(reports.id, reportId)).then(rows => rows[0]);
-      if (!report || report.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
-
-      const criteria: any[] = JSON.parse(report.criteria || '[]');
-      const reportColumns: any[] = JSON.parse(report.columns || '[]');
-
-      const accessCondition = await getAccessibleAuditionConditions(userId);
-      const userAuditions = await db.select().from(auditions).where(accessCondition);
-      if (userAuditions.length === 0) return res.json({ columns: reportColumns, rows: [] });
-
-      const auditionIds = userAuditions.map(a => a.id);
-      const auditionMap = new Map(userAuditions.map(a => [a.id, a]));
-
-      const auRows = await db.select().from(auditionUsers).where(inArray(auditionUsers.auditionId, auditionIds));
-      if (auRows.length === 0) return res.json({ columns: reportColumns, rows: [] });
-
-      const auIds = auRows.map(au => au.id);
-      const userIds = [...new Set(auRows.map(au => au.userId))];
-
-      const [usersData, cfValues, roundsData, attrs] = await Promise.all([
-        db.select().from(users).where(inArray(users.id, userIds)),
-        db.select().from(auditionUserCustomFields).where(inArray(auditionUserCustomFields.auditionUserId, auIds)),
-        db.select().from(auditionRounds).where(inArray(auditionRounds.auditionId, auditionIds)),
-        db.select().from(customAttributes).where(eq(customAttributes.userId, userId)),
-      ]);
-
-      // Latest round each participant reached, with their score in it
-      const latestRoundByAu = new Map<number, { round: typeof roundsData[number]; participant: any; score: number | null }>();
-      for (const round of roundsData) {
-        const { criteria, participants } = await loadRoundScoringData(round.id);
-        const live = round.status === "open" ? evaluateRound(participants, criteria, round.advanceRule, round.advanceValue) : [];
-        for (const p of participants) {
-          const current = latestRoundByAu.get(p.auditionUserId);
-          if (current && current.round.roundNumber >= round.roundNumber) continue;
-          const liveRow = live.find(r => r.id === p.id);
-          const score = round.status === "open" ? (liveRow && !liveRow.unscored ? liveRow.total : null) : p.finalScore;
-          latestRoundByAu.set(p.auditionUserId, { round, participant: p, score });
-        }
-      }
-
-      const userMap = new Map(usersData.map(u => [u.id, u]));
-      const attrMap = new Map(attrs.map(a => [a.id, a]));
-
-      const enrichedRows = auRows.map(au => {
-        const userData = userMap.get(au.userId);
-        const audition = auditionMap.get(au.auditionId);
-        const cfv = cfValues.filter(cf => cf.auditionUserId === au.id);
-        const latest = latestRoundByAu.get(au.id);
-        let roundStatus = "";
-        if (latest) {
-          if (latest.round.status === "open") roundStatus = "In progress";
-          else if (latest.participant.status === "advanced") roundStatus = latest.round.isFinal ? "Selected" : "Advanced";
-          else roundStatus = "Eliminated";
-        }
-
-        const row: Record<string, any> = {
-          firstName: userData?.firstName || '',
-          lastName: userData?.lastName || '',
-          email: userData?.email || '',
-          phone: userData?.phone || '',
-          auditionTitle: audition?.title || '',
-          auditionDate: audition?.date || '',
-          latestRound: latest?.round.title || '',
-          score: latest?.score ?? '',
-          feedback: latest ? latest.participant.evaluations.map((e: any) => e.comment).filter(Boolean).join(' | ') : '',
-          roundStatus,
-        };
-
-        for (const cf of cfv) {
-          row[`custom:${cf.customAttributeId}`] = cf.value;
-        }
-
-        return row;
-      });
-
-      function evaluateCondition(row: Record<string, any>, condition: any): boolean {
-        const rawValue = row[condition.field];
-        const fieldValue = String(rawValue ?? '');
-        const compareValue = String(condition.value ?? '');
-
-        let fieldType = 'text';
-        if (condition.field.startsWith('custom:')) {
-          const attrId = parseInt(condition.field.split(':')[1]);
-          const attr = attrMap.get(attrId);
-          if (attr) fieldType = attr.type;
-        } else if (condition.field === 'score') {
-          fieldType = 'number';
-        } else if (condition.field === 'auditionDate') {
-          fieldType = 'date';
-        }
-
-        switch (condition.operator) {
-          case 'equals':
-            if (fieldType === 'number') return parseFloat(fieldValue) === parseFloat(compareValue);
-            return fieldValue.toLowerCase() === compareValue.toLowerCase();
-          case 'not_equals':
-            if (fieldType === 'number') return parseFloat(fieldValue) !== parseFloat(compareValue);
-            return fieldValue.toLowerCase() !== compareValue.toLowerCase();
-          case 'contains':
-            if (fieldType === 'multiselect') {
-              try {
-                const arr = JSON.parse(fieldValue);
-                if (Array.isArray(arr)) return arr.some((v: string) => String(v).toLowerCase() === compareValue.toLowerCase());
-              } catch {}
-            }
-            return fieldValue.toLowerCase().includes(compareValue.toLowerCase());
-          case 'not_contains':
-            if (fieldType === 'multiselect') {
-              try {
-                const arr = JSON.parse(fieldValue);
-                if (Array.isArray(arr)) return !arr.some((v: string) => String(v).toLowerCase() === compareValue.toLowerCase());
-              } catch {}
-            }
-            return !fieldValue.toLowerCase().includes(compareValue.toLowerCase());
-          case 'starts_with': return fieldValue.toLowerCase().startsWith(compareValue.toLowerCase());
-          case 'ends_with': return fieldValue.toLowerCase().endsWith(compareValue.toLowerCase());
-          case 'greater_than': return parseFloat(fieldValue) > parseFloat(compareValue);
-          case 'less_than': return parseFloat(fieldValue) < parseFloat(compareValue);
-          case 'greater_equal': return parseFloat(fieldValue) >= parseFloat(compareValue);
-          case 'less_equal': return parseFloat(fieldValue) <= parseFloat(compareValue);
-          case 'before': return fieldValue < compareValue;
-          case 'after': return fieldValue > compareValue;
-          case 'is_empty': return !fieldValue || fieldValue.trim() === '';
-          case 'is_not_empty': return !!fieldValue && fieldValue.trim() !== '';
-          default: return true;
-        }
-      }
-
-      const filteredRows = enrichedRows.filter(row => {
-        if (criteria.length === 0) return true;
-        let result = evaluateCondition(row, criteria[0]);
-        for (let i = 1; i < criteria.length; i++) {
-          const cond = criteria[i];
-          const condResult = evaluateCondition(row, cond);
-          if (cond.logicOp === 'OR') {
-            result = result || condResult;
-          } else {
-            result = result && condResult;
-          }
-        }
-        return result;
-      });
-
-      const displayRows = filteredRows.map(row => {
-        const display: Record<string, any> = { ...row };
-        for (const key of Object.keys(display)) {
-          if (key.startsWith('custom:')) {
-            const attrId = parseInt(key.split(':')[1]);
-            const attr = attrMap.get(attrId);
-            if (attr?.type === 'multiselect' && typeof display[key] === 'string') {
-              try { display[key] = JSON.parse(display[key]).join(', '); } catch {}
-            } else if (attr?.type === 'boolean') {
-              display[key] = display[key] === 'true' ? 'Yes' : 'No';
-            }
-          }
-        }
-        return display;
-      });
-
-      res.json({ columns: reportColumns, rows: displayRows });
-    } catch (err) {
-      console.error('Failed to run report:', err);
-      res.status(500).json({ error: 'Failed to run report' });
-    }
-  });
+  // Reports (custom + standard) live in src/server/reports.ts
+  registerReportRoutes(app, { getUserIdFromRequest, getAccessibleAuditionConditions, loadRoundScoringData });
 
   // --- Auth Routes ---
 
@@ -2714,7 +2495,8 @@ async function startServer() {
         .where(eq(subscriptions.id, currentSub.id));
 
       if (newPlan === 'personal') {
-        res.json({ success: true, message: `Your ${currentSub.plan} plan will remain active until ${currentSub.endDate.toLocaleDateString()}` });
+        const tz = resolveTimeZone(req.get(TIMEZONE_HEADER));
+        res.json({ success: true, message: `Your ${currentSub.plan} plan will remain active until ${formatLongDateInZone(currentSub.endDate, tz)}` });
         return;
       }
 

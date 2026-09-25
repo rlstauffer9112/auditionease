@@ -33,6 +33,8 @@ import { AuthPage } from './components/AuthPage';
 import { RoundsPage } from './components/RoundsPage';
 import { ScoringTemplatesEditor } from './components/ScoringTemplatesEditor';
 import { JudgesEditor } from './components/JudgesEditor';
+import { ReportsPage } from './components/ReportsPage';
+import { TIMEZONE_HEADER, browserTimeZone } from './lib/dates';
 import { AuditionSettings, DEFAULT_AUDITION_SETTINGS, normalizeAuditionSettings } from './lib/auditionSettings';
 import { LandingPage } from './components/LandingPage';
 import { InvitePage } from './components/InvitePage';
@@ -112,27 +114,6 @@ interface AuditionSlot {
   status: 'available' | 'booked' | 'completed' | 'no-show' | 'closed';
 }
 
-interface ReportCriterion {
-  field: string;
-  operator: string;
-  value: string;
-  logicOp?: 'AND' | 'OR';
-}
-
-interface ReportColumn {
-  field: string;
-  label: string;
-}
-
-interface ReportTemplate {
-  id: number;
-  name: string;
-  criteria: ReportCriterion[];
-  columns: ReportColumn[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 export default function App() {
   return (
     <AuthProvider>
@@ -205,15 +186,8 @@ function AppContent() {
   const [vocalistAuditionId, setVocalistAuditionId] = useState<number | null>(null);
   const [vocalistUsers, setVocalistUsers] = useState<AuditionUser[]>([]);
 
-  // Report states
-  const [reportsList, setReportsList] = useState<ReportTemplate[]>([]);
-  const [reportView, setReportView] = useState<'list' | 'builder' | 'results'>('list');
-  const [editingReportId, setEditingReportId] = useState<number | null>(null);
-  const [reportName, setReportName] = useState('');
-  const [reportCriteria, setReportCriteria] = useState<ReportCriterion[]>([]);
-  const [reportColumns, setReportColumns] = useState<ReportColumn[]>([]);
-  const [reportResults, setReportResults] = useState<{ reportName: string; columns: ReportColumn[]; rows: Record<string, any>[] } | null>(null);
-  const [runningReportId, setRunningReportId] = useState<number | null>(null);
+  // Remounts the reports page when its nav item is clicked (back to the list)
+  const [reportsNavKey, setReportsNavKey] = useState(0);
 
   const [checkoutPlan, setCheckoutPlan] = useState<'business' | 'enterprise' | null>(null);
 
@@ -288,6 +262,8 @@ function AppContent() {
       headers: {
         ...opts.headers,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        // Lets the server format dates and times in the viewer's local timezone
+        [TIMEZONE_HEADER]: browserTimeZone(),
       },
     });
   };
@@ -387,12 +363,11 @@ function AppContent() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [audRes, myAudRes, attrRes, attrSetsRes, repRes, subRes, orgRes] = await Promise.all([
+      const [audRes, myAudRes, attrRes, attrSetsRes, subRes, orgRes] = await Promise.all([
         authFetch('/api/auditions'),
         authFetch('/api/my-auditions'),
         authFetch('/api/custom-attributes'),
         authFetch('/api/attribute-sets'),
-        authFetch('/api/reports'),
         authFetch('/api/subscription'),
         authFetch('/api/organization'),
       ]);
@@ -400,7 +375,6 @@ function AppContent() {
       const myAudData = await myAudRes.json();
       const attrData = await attrRes.json();
       const attrSetsData = await attrSetsRes.json();
-      const repData = await repRes.json();
       const subData = await subRes.json();
       const orgData = await orgRes.json();
       setAuditions(audData);
@@ -429,11 +403,6 @@ function AppContent() {
           setOrgDivisions((divData.divisions || []).map((d: any) => ({ id: d.id, title: d.title })));
         }
       }
-      setReportsList(repData.map((r: any) => ({
-        ...r,
-        criteria: JSON.parse(r.criteria || '[]'),
-        columns: JSON.parse(r.columns || '[]'),
-      })));
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -685,192 +654,10 @@ function AppContent() {
            u.email.toLowerCase().startsWith(q);
   });
 
-  // --- Reports helpers ---
-  const availableFields: { field: string; label: string; type: string; options?: string }[] = [
-    { field: 'firstName', label: 'First Name', type: 'text' },
-    { field: 'lastName', label: 'Last Name', type: 'text' },
-    { field: 'email', label: 'Email', type: 'text' },
-    { field: 'phone', label: 'Phone', type: 'text' },
-    { field: 'auditionTitle', label: 'Audition', type: 'text' },
-    { field: 'auditionDate', label: 'Audition Date', type: 'date' },
-    { field: 'latestRound', label: 'Latest Round', type: 'text' },
-    { field: 'score', label: 'Latest Round Score', type: 'number' },
-    { field: 'feedback', label: 'Latest Round Comments', type: 'text' },
-    { field: 'roundStatus', label: 'Round Status', type: 'select', options: JSON.stringify(['In progress', 'Advanced', 'Eliminated', 'Selected']) },
-    ...customAttributes.map(attr => ({
-      field: `custom:${attr.id}`,
-      label: attr.label,
-      type: attr.type as string,
-      options: attr.options || undefined,
-    })),
-  ];
-
-  const getOperatorsForType = (type: string) => {
-    const common = [
-      { value: 'is_empty', label: 'is empty' },
-      { value: 'is_not_empty', label: 'is not empty' },
-    ];
-    switch (type) {
-      case 'number':
-        return [
-          { value: 'equals', label: 'equals' },
-          { value: 'not_equals', label: 'does not equal' },
-          { value: 'greater_than', label: 'greater than' },
-          { value: 'less_than', label: 'less than' },
-          { value: 'greater_equal', label: 'at least' },
-          { value: 'less_equal', label: 'at most' },
-          ...common,
-        ];
-      case 'date':
-        return [
-          { value: 'equals', label: 'equals' },
-          { value: 'not_equals', label: 'does not equal' },
-          { value: 'before', label: 'is before' },
-          { value: 'after', label: 'is after' },
-          ...common,
-        ];
-      case 'boolean':
-        return [{ value: 'equals', label: 'equals' }];
-      case 'select':
-        return [
-          { value: 'equals', label: 'equals' },
-          { value: 'not_equals', label: 'does not equal' },
-          ...common,
-        ];
-      case 'multiselect':
-        return [
-          { value: 'contains', label: 'includes' },
-          { value: 'not_contains', label: 'does not include' },
-          ...common,
-        ];
-      default:
-        return [
-          { value: 'equals', label: 'equals' },
-          { value: 'not_equals', label: 'does not equal' },
-          { value: 'contains', label: 'contains' },
-          { value: 'not_contains', label: 'does not contain' },
-          { value: 'starts_with', label: 'starts with' },
-          { value: 'ends_with', label: 'ends with' },
-          ...common,
-        ];
-    }
-  };
-
-  async function fetchReports() {
-    try {
-      const res = await authFetch('/api/reports');
-      const data = await res.json();
-      setReportsList(data.map((r: any) => ({
-        ...r,
-        criteria: JSON.parse(r.criteria || '[]'),
-        columns: JSON.parse(r.columns || '[]'),
-      })));
-    } catch (err) {
-      console.error('Error fetching reports:', err);
-    }
-  }
-
-  async function handleSaveReport() {
-    if (!reportName.trim() || reportColumns.length === 0) return;
-    try {
-      const body = {
-        name: reportName.trim(),
-        criteria: JSON.stringify(reportCriteria),
-        columns: JSON.stringify(reportColumns),
-      };
-      if (editingReportId) {
-        await authFetch(`/api/reports/${editingReportId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-      } else {
-        await authFetch('/api/reports', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-      }
-      await fetchReports();
-      setReportView('list');
-    } catch (err) {
-      console.error('Error saving report:', err);
-    }
-  }
-
-  async function handleDeleteReport(id: number) {
-    if (!confirm('Delete this report?')) return;
-    try {
-      await authFetch(`/api/reports/${id}`, { method: 'DELETE' });
-      await fetchReports();
-    } catch (err) {
-      console.error('Error deleting report:', err);
-    }
-  }
-
-  async function handleRunReport(id: number) {
-    try {
-      setRunningReportId(id);
-      const res = await authFetch(`/api/reports/${id}/run`, { method: 'POST' });
-      const data = await res.json();
-      const report = reportsList.find(r => r.id === id);
-      setReportResults({ reportName: report?.name || 'Report', columns: data.columns, rows: data.rows });
-      setReportView('results');
-    } catch (err) {
-      console.error('Error running report:', err);
-    }
-  }
-
-  const renderCriterionValue = (criterion: ReportCriterion, idx: number) => {
-    if (['is_empty', 'is_not_empty'].includes(criterion.operator)) return null;
-    const fieldDef = availableFields.find(f => f.field === criterion.field);
-    const fieldType = fieldDef?.type || 'text';
-    const updateValue = (val: string) => {
-      const u = [...reportCriteria];
-      u[idx] = { ...u[idx], value: val };
-      setReportCriteria(u);
-    };
-    if (fieldType === 'boolean') {
-      return (
-        <select value={criterion.value || 'true'} onChange={e => updateValue(e.target.value)}
-          className="w-32 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white">
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
-      );
-    }
-    if ((fieldType === 'select' || fieldType === 'multiselect') && fieldDef?.options) {
-      const opts = parseOptions(fieldDef.options);
-      return (
-        <select value={criterion.value} onChange={e => updateValue(e.target.value)}
-          className="flex-1 min-w-[120px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white">
-          <option value="">Select...</option>
-          {opts.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      );
-    }
-    if (fieldType === 'number') {
-      return (
-        <input type="number" value={criterion.value} onChange={e => updateValue(e.target.value)}
-          className="w-32 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm" placeholder="Value" />
-      );
-    }
-    if (fieldType === 'date') {
-      return (
-        <input type="date" value={criterion.value} onChange={e => updateValue(e.target.value)}
-          className="w-40 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm" />
-      );
-    }
-    return (
-      <input type="text" value={criterion.value} onChange={e => updateValue(e.target.value)}
-        className="flex-1 min-w-[120px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm" placeholder="Value" />
-    );
-  };
-
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
+    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans print:bg-white">
       {/* Sidebar */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10">
+      <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10 print:hidden">
         <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
           <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
             <ClipboardList size={24} />
@@ -908,7 +695,7 @@ function AppContent() {
             <span className="font-medium">Rounds</span>
           </button>
           <button
-            onClick={() => { setActiveTab('reports'); setReportView('list'); }}
+            onClick={() => { setActiveTab('reports'); setReportsNavKey(k => k + 1); }}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
           >
             <FileBarChart size={20} />
@@ -965,7 +752,7 @@ function AppContent() {
       </div>
 
       {/* Main Content */}
-      <main className="ml-64 p-10">
+      <main className="ml-64 p-10 print:ml-0 print:p-0">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <Dashboard
@@ -2103,432 +1890,14 @@ function AppContent() {
           )}
 
           {activeTab === 'reports' && (
-            <motion.div
-              key="reports"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="max-w-5xl mx-auto"
-            >
-              {reportView === 'list' && (
-                <>
-                  <div className="flex justify-between items-center mb-10">
-                    <div>
-                      <h2 className="text-3xl font-extrabold tracking-tight mb-2">Reports</h2>
-                      <p className="text-[#6B7280]">Build and run custom reports on your applicant data.</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setEditingReportId(null);
-                        setReportName('');
-                        setReportCriteria([]);
-                        setReportColumns([
-                          { field: 'firstName', label: 'First Name' },
-                          { field: 'lastName', label: 'Last Name' },
-                          { field: 'email', label: 'Email' },
-                        ]);
-                        setReportView('builder');
-                      }}
-                      className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
-                    >
-                      <Plus size={20} />
-                      New Report
-                    </button>
-                  </div>
-
-                  {reportsList.length === 0 ? (
-                    <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center">
-                      <FileBarChart size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
-                      <h3 className="text-lg font-bold text-[#374151] mb-2">No Reports Yet</h3>
-                      <p className="text-sm text-[#6B7280]">Create your first report to filter and analyze your applicant data.</p>
-                    </div>
-                  ) : (
-                    <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm divide-y divide-[#F3F4F6]">
-                      {reportsList.map(report => (
-                        <div key={report.id} className="flex items-center gap-4 px-4 py-3 hover:bg-[#F9FAFB] transition-colors">
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <button
-                              onClick={() => {
-                                setEditingReportId(report.id);
-                                setReportName(report.name);
-                                setReportCriteria(report.criteria);
-                                setReportColumns(report.columns);
-                                setReportView('builder');
-                              }}
-                              className="p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg transition-colors"
-                              title="Edit report"
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteReport(report.id)}
-                              className="p-1.5 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
-                              title="Delete report"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-sm text-[#111827] truncate">{report.name}</p>
-                            <p className="text-xs text-[#9CA3AF]">
-                              {report.criteria.length} filter{report.criteria.length !== 1 ? 's' : ''} · {report.columns.length} column{report.columns.length !== 1 ? 's' : ''} · {new Date(report.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => handleRunReport(report.id)}
-                            className="flex-shrink-0 bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:bg-[#4338CA] transition-colors flex items-center gap-1.5"
-                          >
-                            <Play size={14} /> Run
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {reportView === 'builder' && (
-                <>
-                  <button
-                    onClick={() => setReportView('list')}
-                    className="text-[#4F46E5] font-bold flex items-center gap-2 hover:underline mb-6"
-                  >
-                    ← Back to Reports
-                  </button>
-
-                  <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 space-y-8">
-                    <h3 className="text-2xl font-bold">{editingReportId ? 'Edit Report' : 'Create Report'}</h3>
-
-                    <div>
-                      <label className="block text-sm font-bold text-[#374151] mb-1.5">Report Name</label>
-                      <input
-                        type="text"
-                        value={reportName}
-                        onChange={e => setReportName(e.target.value)}
-                        className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                        placeholder="e.g. Soprano Applicants"
-                      />
-                    </div>
-
-                    <div>
-                      <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                        <Filter size={20} className="text-[#4F46E5]" />
-                        Filter Criteria
-                      </h4>
-                      <p className="text-sm text-[#6B7280] mb-4">Add conditions to filter which applicants appear in the report. Leave empty to include all.</p>
-                      <div className="space-y-3">
-                        {reportCriteria.map((criterion, idx) => (
-                          <div key={idx} className="flex items-center gap-2 flex-wrap bg-[#F9FAFB] p-3 rounded-xl">
-                            {idx === 0 ? (
-                              <span className="w-16 text-xs font-bold text-[#6B7280] uppercase text-center">Where</span>
-                            ) : (
-                              <select
-                                value={criterion.logicOp || 'AND'}
-                                onChange={e => {
-                                  const u = [...reportCriteria];
-                                  u[idx] = { ...u[idx], logicOp: e.target.value as 'AND' | 'OR' };
-                                  setReportCriteria(u);
-                                }}
-                                className="w-16 border border-[#E5E7EB] rounded-lg px-1 py-2 text-xs font-bold bg-white text-center"
-                              >
-                                <option value="AND">AND</option>
-                                <option value="OR">OR</option>
-                              </select>
-                            )}
-                            <select
-                              value={criterion.field}
-                              onChange={e => {
-                                const u = [...reportCriteria];
-                                const fd = availableFields.find(f => f.field === e.target.value);
-                                const ops = getOperatorsForType(fd?.type || 'text');
-                                u[idx] = { ...u[idx], field: e.target.value, operator: ops[0]?.value || 'equals', value: '' };
-                                setReportCriteria(u);
-                              }}
-                              className="flex-1 min-w-[160px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
-                            >
-                              <option value="" disabled>Select field...</option>
-                              <optgroup label="User Fields">
-                                {availableFields.filter(f => !f.field.startsWith('custom:')).map(f => (
-                                  <option key={f.field} value={f.field}>{f.label}</option>
-                                ))}
-                              </optgroup>
-                              {availableFields.some(f => f.field.startsWith('custom:')) && (
-                                <optgroup label="Custom Attributes">
-                                  {availableFields.filter(f => f.field.startsWith('custom:')).map(f => (
-                                    <option key={f.field} value={f.field}>{f.label}</option>
-                                  ))}
-                                </optgroup>
-                              )}
-                            </select>
-                            <select
-                              value={criterion.operator}
-                              onChange={e => {
-                                const u = [...reportCriteria];
-                                u[idx] = { ...u[idx], operator: e.target.value };
-                                if (['is_empty', 'is_not_empty'].includes(e.target.value)) {
-                                  u[idx].value = '';
-                                }
-                                setReportCriteria(u);
-                              }}
-                              className="w-44 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
-                            >
-                              {getOperatorsForType(availableFields.find(f => f.field === criterion.field)?.type || 'text').map(op => (
-                                <option key={op.value} value={op.value}>{op.label}</option>
-                              ))}
-                            </select>
-                            {renderCriterionValue(criterion, idx)}
-                            <button
-                              onClick={() => setReportCriteria(reportCriteria.filter((_, i) => i !== idx))}
-                              className="p-2 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors flex-shrink-0"
-                            >
-                              <XCircle size={18} />
-                            </button>
-                          </div>
-                        ))}
-                        <button
-                          onClick={() => {
-                            const df = availableFields[0]?.field || 'firstName';
-                            const dops = getOperatorsForType(availableFields[0]?.type || 'text');
-                            setReportCriteria([...reportCriteria, {
-                              field: df,
-                              operator: dops[0]?.value || 'equals',
-                              value: '',
-                              ...(reportCriteria.length > 0 ? { logicOp: 'AND' as const } : {}),
-                            }]);
-                          }}
-                          className="flex items-center gap-2 text-sm font-bold text-[#4F46E5] hover:underline pt-2"
-                        >
-                          <Plus size={16} /> Add Condition
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                        <ClipboardList size={20} className="text-[#4F46E5]" />
-                        Display Columns
-                      </h4>
-                      <p className="text-sm text-[#6B7280] mb-4">Add fields from the right to choose which columns appear in the report. Drag or use arrows to reorder.</p>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <h5 className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">Selected Columns</h5>
-                          <div className="border border-[#E5E7EB] rounded-xl min-h-[240px] max-h-[320px] overflow-y-auto">
-                            {reportColumns.length === 0 ? (
-                              <div className="p-6 text-center text-[#9CA3AF] text-sm">No columns selected — add fields from the right</div>
-                            ) : (
-                              <div className="divide-y divide-[#F3F4F6]">
-                                {reportColumns.map((col, idx) => (
-                                  <div key={col.field} className="flex items-center gap-1 px-3 py-2.5 hover:bg-[#F9FAFB] group">
-                                    <span className="text-xs text-[#9CA3AF] w-5 text-center font-mono">{idx + 1}</span>
-                                    <span className="text-sm font-medium flex-1 truncate">{col.label}</span>
-                                    <button
-                                      onClick={() => {
-                                        if (idx === 0) return;
-                                        const u = [...reportColumns];
-                                        [u[idx - 1], u[idx]] = [u[idx], u[idx - 1]];
-                                        setReportColumns(u);
-                                      }}
-                                      disabled={idx === 0}
-                                      className="p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[#6B7280] transition-colors"
-                                      title="Move up"
-                                    >
-                                      <ArrowUp size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        if (idx === reportColumns.length - 1) return;
-                                        const u = [...reportColumns];
-                                        [u[idx], u[idx + 1]] = [u[idx + 1], u[idx]];
-                                        setReportColumns(u);
-                                      }}
-                                      disabled={idx === reportColumns.length - 1}
-                                      className="p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[#6B7280] transition-colors"
-                                      title="Move down"
-                                    >
-                                      <ArrowDown size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => setReportColumns(reportColumns.filter(c => c.field !== col.field))}
-                                      className="p-1 rounded hover:bg-[#FEF2F2] text-[#D1D5DB] hover:text-[#EF4444] transition-colors"
-                                      title="Remove"
-                                    >
-                                      <XCircle size={14} />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <h5 className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">Available Fields</h5>
-                          <div className="border border-[#E5E7EB] rounded-xl min-h-[240px] max-h-[320px] overflow-y-auto">
-                            {(() => {
-                              const unselected = availableFields.filter(f => !reportColumns.some(c => c.field === f.field));
-                              const builtIn = unselected.filter(f => !f.field.startsWith('custom:'));
-                              const custom = unselected.filter(f => f.field.startsWith('custom:'));
-                              if (unselected.length === 0) {
-                                return <div className="p-6 text-center text-[#9CA3AF] text-sm">All fields added</div>;
-                              }
-                              return (
-                                <div className="divide-y divide-[#F3F4F6]">
-                                  {builtIn.length > 0 && (
-                                    <>
-                                      <div className="px-3 py-1.5 bg-[#F9FAFB] text-xs font-bold text-[#9CA3AF] uppercase tracking-wider">User Fields</div>
-                                      {builtIn.map(f => (
-                                        <button
-                                          key={f.field}
-                                          onClick={() => setReportColumns([...reportColumns, { field: f.field, label: f.label }])}
-                                          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[#EEF2FF] text-left transition-colors"
-                                        >
-                                          <Plus size={14} className="text-[#4F46E5] flex-shrink-0" />
-                                          <span className="text-sm font-medium">{f.label}</span>
-                                        </button>
-                                      ))}
-                                    </>
-                                  )}
-                                  {custom.length > 0 && (
-                                    <>
-                                      <div className="px-3 py-1.5 bg-[#F9FAFB] text-xs font-bold text-[#9CA3AF] uppercase tracking-wider">Custom Attributes</div>
-                                      {custom.map(f => (
-                                        <button
-                                          key={f.field}
-                                          onClick={() => setReportColumns([...reportColumns, { field: f.field, label: f.label }])}
-                                          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[#EEF2FF] text-left transition-colors"
-                                        >
-                                          <Plus size={14} className="text-[#4F46E5] flex-shrink-0" />
-                                          <span className="text-sm font-medium">{f.label}</span>
-                                        </button>
-                                      ))}
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 pt-4 border-t border-[#E5E7EB]">
-                      <button
-                        onClick={() => setReportView('list')}
-                        className="px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSaveReport}
-                        disabled={!reportName.trim() || reportColumns.length === 0}
-                        className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {editingReportId ? 'Update Report' : 'Save Report'}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {reportView === 'results' && reportResults && (
-                <>
-                  <button
-                    onClick={() => setReportView('list')}
-                    className="text-[#4F46E5] font-bold flex items-center gap-2 hover:underline mb-6"
-                  >
-                    ← Back to Reports
-                  </button>
-
-                  <div className="flex justify-between items-center mb-6">
-                    <div>
-                      <h2 className="text-3xl font-extrabold tracking-tight mb-2">{reportResults.reportName}</h2>
-                      <p className="text-[#6B7280]">{reportResults.rows.length} result{reportResults.rows.length !== 1 ? 's' : ''} found</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {currentSubscription?.plan === 'business' || currentSubscription?.plan === 'enterprise' ? (
-                        <button
-                          onClick={() => {
-                            const cols = reportResults.columns;
-                            const header = cols.map(c => `"${c.label.replace(/"/g, '""')}"`).join(',');
-                            const rows = reportResults.rows.map(row =>
-                              cols.map(c => {
-                                const val = String(row[c.field] ?? '');
-                                return `"${val.replace(/"/g, '""')}"`;
-                              }).join(',')
-                            );
-                            const csv = [header, ...rows].join('\n');
-                            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            const now = new Date();
-                            const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
-                            a.download = `${reportResults.reportName.replace(/[^a-zA-Z0-9 ]/g, '').trim()}_${stamp}.csv`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                          className="bg-white text-[#4F46E5] border border-[#4F46E5] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#EEF2FF] transition-colors"
-                        >
-                          <Download size={16} /> Export CSV
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => { setActiveTab('settings'); setSetupTab('billing'); setSubscriptionLoading(true); authFetch('/api/subscription').then(r => r.json()).then(data => setCurrentSubscription(data.subscription)).catch(() => {}).finally(() => setSubscriptionLoading(false)); }}
-                          className="relative bg-white text-[#9CA3AF] border border-[#E5E7EB] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:border-[#4F46E5] hover:text-[#4F46E5] transition-colors group"
-                        >
-                          <Lock size={16} /> Export CSV
-                          <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#1F2937] text-white text-xs font-medium px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                            Upgrade to Business to export
-                          </span>
-                        </button>
-                      )}
-                      {runningReportId && (
-                        <button
-                          onClick={() => handleRunReport(runningReportId)}
-                          className="bg-[#4F46E5] text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#4338CA] transition-colors"
-                        >
-                          <Play size={16} /> Re-run
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-3xl border border-[#E5E7EB] overflow-hidden shadow-sm">
-                    {reportResults.rows.length === 0 ? (
-                      <div className="p-12 text-center text-[#6B7280]">
-                        <Search size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
-                        <h3 className="text-lg font-bold text-[#374151] mb-2">No Results</h3>
-                        <p className="text-sm">No applicants match the filter criteria for this report.</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-[#F9FAFB]">
-                              {reportResults.columns.map(col => (
-                                <th key={col.field} className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider whitespace-nowrap">
-                                  {col.label}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#F3F4F6]">
-                            {reportResults.rows.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-[#F9FAFB] transition-colors">
-                                {reportResults.columns.map(col => (
-                                  <td key={col.field} className="px-6 py-4 text-sm">
-                                    {String(row[col.field] ?? '')}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </motion.div>
+            <React.Fragment key={reportsNavKey}>
+              <ReportsPage
+                authFetch={authFetch}
+                customAttributes={customAttributes}
+                canExport={currentSubscription?.plan === 'business' || currentSubscription?.plan === 'enterprise'}
+                onUpgrade={() => { setActiveTab('settings'); setSetupTab('billing'); setSubscriptionLoading(true); authFetch('/api/subscription').then(r => r.json()).then(data => setCurrentSubscription(data.subscription)).catch(() => {}).finally(() => setSubscriptionLoading(false)); }}
+              />
+            </React.Fragment>
           )}
 
           {activeTab === 'organization' && (

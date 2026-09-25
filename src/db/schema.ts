@@ -1,6 +1,7 @@
 import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex, numeric, check, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { AuditionSettings } from '../lib/auditionSettings';
+import type { ReportOptions } from '../lib/reports';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -240,6 +241,8 @@ export const reports = pgTable('reports', {
   name: text('name').notNull(),
   criteria: text('criteria').notNull().default('[]'),
   columns: text('columns').notNull().default('[]'),
+  // See ReportOptions in src/lib/reports.ts (e.g. sort order)
+  options: jsonb('options').$type<ReportOptions>().default({}).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => [

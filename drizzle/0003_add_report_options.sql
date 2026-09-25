@@ -1,0 +1,1 @@
+ALTER TABLE "reports" ADD COLUMN "options" jsonb DEFAULT '{}'::jsonb NOT NULL;
