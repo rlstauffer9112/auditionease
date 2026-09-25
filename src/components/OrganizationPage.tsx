@@ -18,6 +18,8 @@ import {
   UserCog,
 } from 'lucide-react';
 import { DivisionAttributesEditor } from './DivisionAttributesEditor';
+import { ScoringTemplatesEditor } from './ScoringTemplatesEditor';
+import { JudgesEditor } from './JudgesEditor';
 
 interface OrgUser {
   id: number;
@@ -595,6 +597,13 @@ export function OrganizationPage({ authFetch }: Props) {
                           </div>
                           <div className="border-t border-[#E5E7EB] mt-3 pt-1">
                             <DivisionAttributesEditor divisionId={div.id} authFetch={authFetch} />
+                            <ScoringTemplatesEditor
+                              authFetch={authFetch}
+                              divisionId={div.id}
+                              copyTargets={divisionsList.map(d => ({ id: d.id, title: d.title }))}
+                              collapsible
+                            />
+                            <JudgesEditor divisionId={div.id} authFetch={authFetch} collapsible />
                           </div>
                         </>
                       )}

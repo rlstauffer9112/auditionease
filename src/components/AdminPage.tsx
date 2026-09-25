@@ -10,10 +10,10 @@ interface AdminStats {
   totalSlots: number;
   bookedSlots: number;
   completedSlots: number;
-  totalCallbacks: number;
-  acceptedCallbacks: number;
-  rejectedCallbacks: number;
-  pendingCallbacks: number;
+  totalRounds: number;
+  openRounds: number;
+  closedRounds: number;
+  totalEvaluations: number;
   subscriptionsByPlan: { plan: string; count: number }[];
   auditionsByStatus: { status: string; count: number }[];
   recentUsers: { id: number; firstName: string; lastName: string; email: string; createdAt: string }[];
@@ -99,12 +99,12 @@ export function AdminPage({ authFetch }: AdminPageProps) {
         <StatCard icon={Mail} label="Invite Signups" value={stats.totalInviteSignups} color="bg-[#7C3AED]" />
       </div>
 
-      {/* Slot & callback stats */}
+      {/* Slot & round stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         <StatCard icon={Clock} label="Total Slots" value={stats.totalSlots} sub={`${slotUtilization}% utilization`} color="bg-[#0891B2]" />
         <StatCard icon={Activity} label="Booked Slots" value={stats.bookedSlots} color="bg-[#2563EB]" />
         <StatCard icon={TrendingUp} label="Completed Slots" value={stats.completedSlots} color="bg-[#16A34A]" />
-        <StatCard icon={BarChart3} label="Total Callbacks" value={stats.totalCallbacks} sub={`${stats.acceptedCallbacks} accepted / ${stats.rejectedCallbacks} rejected`} color="bg-[#DC2626]" />
+        <StatCard icon={BarChart3} label="Rounds" value={stats.totalRounds} sub={`${stats.openRounds} open / ${stats.closedRounds} closed · ${stats.totalEvaluations} evaluations`} color="bg-[#DC2626]" />
       </div>
 
       {/* Breakdowns */}

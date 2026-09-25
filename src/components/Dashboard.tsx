@@ -14,8 +14,10 @@ import {
   Mic2,
   FolderTree,
   Building2,
+  Gavel,
 } from 'lucide-react';
 import { DivisionAttributesEditor } from './DivisionAttributesEditor';
+import { JudgesEditor } from './JudgesEditor';
 
 function formatTime(time: string): string {
   const [h, m] = time.split(':').map(Number);
@@ -68,6 +70,18 @@ interface DashboardProps {
   onSelectAudition: (audition: OwnedAudition) => void;
   onCreateAudition: () => void;
   onRefresh: () => void;
+  judgingAuditions: JudgingAudition[];
+  onJudge: (auditionId: number) => void;
+}
+
+interface JudgingAudition {
+  id: number;
+  title: string;
+  date: string;
+  location: string | null;
+  status: string;
+  divisionTitle: string | null;
+  openRound: { id: number; title: string; participantCount: number; scoredByMe: number } | null;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -78,6 +92,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectAudition,
   onCreateAudition,
   onRefresh,
+  judgingAuditions,
+  onJudge,
 }) => {
   const { user } = useAuth();
   const [slotPickerAuditionId, setSlotPickerAuditionId] = useState<number | null>(null);
@@ -181,6 +197,57 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </h2>
           <p className="text-[#6B7280]">Here's an overview of your auditions and activity.</p>
         </div>
+
+        {judgingAuditions.length > 0 && (
+          <div className="mb-10">
+            <div className="mb-5">
+              <h3 className="text-xl font-bold text-[#111827]">Auditions to Judge</h3>
+              <p className="text-sm text-[#6B7280]">You've been added as a judge for these auditions.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {judgingAuditions.map(a => {
+                const r = a.openRound;
+                const done = r && r.participantCount > 0 && r.scoredByMe >= r.participantCount;
+                return (
+                  <div key={a.id} className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-sm">
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="p-2 bg-[#FEF3C7] text-[#D97706] rounded-xl flex-shrink-0">
+                        <Gavel size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-[#111827] truncate">{a.title}</h4>
+                        <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-[#6B7280]">
+                          {a.date && new Date(a.date + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {a.divisionTitle && (
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-[#EEF2FF] text-[#4F46E5] rounded-full font-medium">
+                              <FolderTree size={11} />{a.divisionTitle}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {r ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm text-[#374151]">
+                          <span className="font-bold">{r.title}</span>
+                          <span className="text-[#6B7280]"> · {r.scoredByMe} of {r.participantCount} scored</span>
+                        </p>
+                        <button
+                          onClick={() => onJudge(a.id)}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${done ? 'border border-[#E5E7EB] text-[#4F46E5] hover:bg-[#EEF2FF]' : 'bg-[#4F46E5] text-white hover:bg-[#4338CA] shadow-sm'}`}
+                        >
+                          {done ? 'Review scores' : r.scoredByMe > 0 ? 'Continue judging' : 'Start judging'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[#9CA3AF]">No round open for scoring right now.</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {myAuditions.length > 0 && (
           <div className="mb-10">
@@ -312,6 +379,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </div>
                   <DivisionAttributesEditor divisionId={div.id} authFetch={authFetch} />
+                  <JudgesEditor divisionId={div.id} authFetch={authFetch} collapsible />
                 </div>
               ))}
             </div>

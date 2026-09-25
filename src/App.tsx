@@ -23,11 +23,17 @@ import {
   ArrowUp,
   ArrowDown,
   LayoutDashboard,
-  Building2
+  Building2,
+  Scale,
+  Gavel
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AuthPage } from './components/AuthPage';
+import { RoundsPage } from './components/RoundsPage';
+import { ScoringTemplatesEditor } from './components/ScoringTemplatesEditor';
+import { JudgesEditor } from './components/JudgesEditor';
+import { AuditionSettings, DEFAULT_AUDITION_SETTINGS, normalizeAuditionSettings } from './lib/auditionSettings';
 import { LandingPage } from './components/LandingPage';
 import { InvitePage } from './components/InvitePage';
 import { Dashboard } from './components/Dashboard';
@@ -89,6 +95,7 @@ interface Audition {
   attributeSetId: number | null;
   divisionId: number | null;
   divisionTitle: string | null;
+  settings: Partial<AuditionSettings>;
   createdAt: string;
   userCount: number;
   openSlots: number;
@@ -103,18 +110,6 @@ interface AuditionSlot {
   startTime: string;
   endTime: string;
   status: 'available' | 'booked' | 'completed' | 'no-show' | 'closed';
-  score: number | null;
-  feedback: string | null;
-  passedToCallback: boolean;
-}
-
-interface Callback {
-  id: number;
-  auditionId: number;
-  userId: number;
-  scheduledTime: string;
-  notes: string;
-  finalDecision: 'accepted' | 'rejected' | 'pending';
 }
 
 interface ReportCriterion {
@@ -165,7 +160,7 @@ function generateInviteCode(): string {
 function AppContent() {
   const { user, loading: authLoading, logout, loginWithToken } = useAuth();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'callbacks' | 'reports' | 'settings' | 'organization' | 'admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'auditions' | 'vocalists' | 'rounds' | 'reports' | 'settings' | 'organization' | 'admin'>('dashboard');
   const [auditions, setAuditions] = useState<Audition[]>([]);
   const [customAttributes, setCustomAttributes] = useState<CustomAttribute[]>([]);
   const [attributeSets, setAttributeSets] = useState<AttributeSet[]>([]);
@@ -174,6 +169,8 @@ function AppContent() {
   const [auditionUsersMap, setAuditionUsersMap] = useState<Map<number, AuditionUser[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [myAuditions, setMyAuditions] = useState<any[]>([]);
+  const [judgingAuditions, setJudgingAuditions] = useState<any[]>([]);
+  const [roundsAuditionId, setRoundsAuditionId] = useState<number | null>(null);
 
   // Form states
   const [showAddAudition, setShowAddAudition] = useState(false);
@@ -184,11 +181,11 @@ function AppContent() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingAudition, setDeletingAudition] = useState(false);
   const [slotConfig, setSlotConfig] = useState({ date: '', startTime: '09:00', endTime: '17:00', duration: 15, padding: 0 });
-  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string, attributeSetId: '' as string, divisionId: '' as string });
+  const [newAudition, setNewAudition] = useState({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open' as string, attributeSetId: '' as string, divisionId: '' as string, settings: DEFAULT_AUDITION_SETTINGS as AuditionSettings });
   const [orgDivisions, setOrgDivisions] = useState<{ id: number; title: string }[]>([]);
 
   // Settings states
-  const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'attributeSets' | 'billing'>('general');
+  const [setupTab, setSetupTab] = useState<'general' | 'attributes' | 'attributeSets' | 'scoringTemplates' | 'judges' | 'billing'>('general');
   const [newAttr, setNewAttr] = useState({ label: '', type: 'text' as any, options: '', required: false });
   const [newSetName, setNewSetName] = useState('');
   const [newSetAttrIds, setNewSetAttrIds] = useState<number[]>([]);
@@ -202,23 +199,11 @@ function AppContent() {
   const [editUserForm, setEditUserForm] = useState<{ firstName: string; lastName: string; phone: string; customFieldValues: { customAttributeId: number; value: string }[] }>({ firstName: '', lastName: '', phone: '', customFieldValues: [] });
   const [savingUserDetails, setSavingUserDetails] = useState(false);
   const [vocalistSearch, setVocalistSearch] = useState('');
-  const [evaluatingSlotId, setEvaluatingSlotId] = useState<number | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
-  const [evalScore, setEvalScore] = useState('');
-  const [evalFeedback, setEvalFeedback] = useState('');
-  const [evalPass, setEvalPass] = useState(false);
 
   // Vocalists tab state
   const [vocalistAuditionId, setVocalistAuditionId] = useState<number | null>(null);
   const [vocalistUsers, setVocalistUsers] = useState<AuditionUser[]>([]);
-
-  // Callback states
-  const [callbacksData, setCallbacksData] = useState<Callback[]>([]);
-  const [callbackAuditionId, setCallbackAuditionId] = useState<number | null>(null);
-  const [callbackSlots, setCallbackSlots] = useState<AuditionSlot[]>([]);
-  const [callbackUsers, setCallbackUsers] = useState<AuditionUser[]>([]);
-  const [showScheduleCallback, setShowScheduleCallback] = useState<Callback | null>(null);
-  const [scheduleDateTime, setScheduleDateTime] = useState('');
 
   // Report states
   const [reportsList, setReportsList] = useState<ReportTemplate[]>([]);
@@ -420,13 +405,17 @@ function AppContent() {
       const orgData = await orgRes.json();
       setAuditions(audData);
       setMyAuditions(myAudData);
+      authFetch('/api/judging')
+        .then(r => (r.ok ? r.json() : []))
+        .then(data => setJudgingAuditions(Array.isArray(data) ? data : []))
+        .catch(() => {});
       setCustomAttributes(attrData);
       setAttributeSets(attrSetsData);
       setCurrentSubscription(subData.subscription);
       if (orgData.organization) {
         setOrgMembership({ organization: orgData.organization, role: orgData.role });
         setSetupTab(prev => {
-          if (prev === 'attributes' || prev === 'attributeSets') return 'general';
+          if (prev === 'attributes' || prev === 'attributeSets' || prev === 'scoringTemplates' || prev === 'judges') return 'general';
           if (prev === 'billing' && orgData.role !== 'owner') return 'general';
           return prev;
         });
@@ -486,7 +475,7 @@ function AppContent() {
       }
       return;
     }
-    setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open', attributeSetId: '', divisionId: '' });
+    setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: generateInviteCode(), status: 'open', attributeSetId: '', divisionId: '', settings: DEFAULT_AUDITION_SETTINGS });
     setEditingAudition(null);
     setShowAddAudition(true);
   };
@@ -502,7 +491,7 @@ function AppContent() {
       if (res.ok) {
         fetchData();
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '', settings: DEFAULT_AUDITION_SETTINGS });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to create audition');
@@ -529,7 +518,7 @@ function AppContent() {
         }
         setEditingAudition(null);
         setShowAddAudition(false);
-        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '' });
+        setNewAudition({ title: '', description: '', date: '', location: '', inviteCode: '', status: 'open', attributeSetId: '', divisionId: '', settings: DEFAULT_AUDITION_SETTINGS });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to update audition');
@@ -683,98 +672,9 @@ function AppContent() {
     }
   };
 
-  const handleCompleteAudition = async (slotId: number, score: number, feedback: string, passedToCallback: boolean) => {
-    try {
-      const res = await authFetch(`/api/slots/${slotId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score, feedback, passedToCallback, status: 'completed' })
-      });
-      if (res.ok && selectedAudition) {
-        fetchSlots(selectedAudition.id);
-        if (passedToCallback) {
-          const slot = slots.find(s => s.id === slotId);
-          if (slot && slot.userId) {
-            await authFetch('/api/callbacks', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                auditionId: selectedAudition.id,
-                userId: slot.userId,
-                notes: `Passed from initial audition. Feedback: ${feedback}`
-              })
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error completing audition:', err);
-    }
-  };
-
-  const fetchCallbacksForAudition = async (auditionId: number) => {
-    try {
-      const [cbRes, slotRes] = await Promise.all([
-        authFetch(`/api/auditions/${auditionId}/callbacks`),
-        authFetch(`/api/auditions/${auditionId}/slots`)
-      ]);
-      const cbData = await cbRes.json();
-      const slotData = await slotRes.json();
-      setCallbacksData(cbData);
-      setCallbackSlots(slotData);
-      const auUsers = await fetchAuditionUsers(auditionId);
-      setCallbackUsers(auUsers);
-    } catch (err) {
-      console.error('Error fetching callbacks:', err);
-    }
-  };
-
-  const handleSelectCallbackAudition = (auditionId: number) => {
-    setCallbackAuditionId(auditionId);
-    fetchCallbacksForAudition(auditionId);
-  };
-
   const handleSelectVocalistAudition = (auditionId: number) => {
     setVocalistAuditionId(auditionId);
     fetchAuditionUsers(auditionId).then(data => setVocalistUsers(data));
-  };
-
-  const handleUpdateCallback = async (id: number, updates: Partial<Callback>) => {
-    try {
-      await authFetch(`/api/callbacks/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      });
-      if (callbackAuditionId) fetchCallbacksForAudition(callbackAuditionId);
-    } catch (err) {
-      console.error('Error updating callback:', err);
-    }
-  };
-
-  const handleDeleteCallback = async (id: number) => {
-    if (!confirm('Remove this applicant from callbacks?')) return;
-    try {
-      await authFetch(`/api/callbacks/${id}`, { method: 'DELETE' });
-      if (callbackAuditionId) fetchCallbacksForAudition(callbackAuditionId);
-    } catch (err) {
-      console.error('Error deleting callback:', err);
-    }
-  };
-
-  const handleNotifyCallback = async (id: number) => {
-    try {
-      const res = await authFetch(`/api/callbacks/${id}/notify`, { method: 'POST' });
-      const data = await res.json();
-      alert(data.message || 'Notification sent');
-    } catch (err) {
-      console.error('Error sending notification:', err);
-    }
-  };
-
-  const getScoreForCallback = (cb: Callback): number | null => {
-    const slot = callbackSlots.find(s => s.userId === cb.userId && s.status === 'completed');
-    return slot?.score ?? null;
   };
 
   const filteredVocalists = vocalistUsers.filter(u => {
@@ -793,9 +693,10 @@ function AppContent() {
     { field: 'phone', label: 'Phone', type: 'text' },
     { field: 'auditionTitle', label: 'Audition', type: 'text' },
     { field: 'auditionDate', label: 'Audition Date', type: 'date' },
-    { field: 'score', label: 'Score', type: 'number' },
-    { field: 'feedback', label: 'Feedback', type: 'text' },
-    { field: 'passedToCallback', label: 'Passed to Callback', type: 'boolean' },
+    { field: 'latestRound', label: 'Latest Round', type: 'text' },
+    { field: 'score', label: 'Latest Round Score', type: 'number' },
+    { field: 'feedback', label: 'Latest Round Comments', type: 'text' },
+    { field: 'roundStatus', label: 'Round Status', type: 'select', options: JSON.stringify(['In progress', 'Advanced', 'Eliminated', 'Selected']) },
     ...customAttributes.map(attr => ({
       field: `custom:${attr.id}`,
       label: attr.label,
@@ -1000,11 +901,11 @@ function AppContent() {
             <span className="font-medium">Applicants</span>
           </button>
           <button
-            onClick={() => setActiveTab('callbacks')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'callbacks' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
+            onClick={() => setActiveTab('rounds')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'rounds' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
           >
             <Trophy size={20} />
-            <span className="font-medium">Sections</span>
+            <span className="font-medium">Rounds</span>
           </button>
           <button
             onClick={() => { setActiveTab('reports'); setReportView('list'); }}
@@ -1075,6 +976,8 @@ function AppContent() {
               onSelectAudition={(audition) => { setActiveTab('auditions'); handleSelectAudition(audition); }}
               onCreateAudition={openNewAudition}
               onRefresh={fetchData}
+              judgingAuditions={judgingAuditions}
+              onJudge={(auditionId) => { setRoundsAuditionId(auditionId); setActiveTab('rounds'); }}
             />
           )}
 
@@ -1251,6 +1154,7 @@ function AppContent() {
                               status: selectedAudition.status,
                               attributeSetId: selectedAudition.attributeSetId ? String(selectedAudition.attributeSetId) : '',
                               divisionId: selectedAudition.divisionId ? String(selectedAudition.divisionId) : '',
+                              settings: normalizeAuditionSettings(selectedAudition.settings),
                             });
                             setEditingAudition(selectedAudition);
                             setShowAddAudition(true);
@@ -1390,35 +1294,12 @@ function AppContent() {
                                       >
                                         <XCircle size={18} />
                                       </button>
-                                      <button
-                                        onClick={() => {
-                                          setEvaluatingSlotId(slot.id);
-                                          setEvalScore('');
-                                          setEvalFeedback('');
-                                          setEvalPass(false);
-                                        }}
-                                        className="bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm"
-                                      >
-                                        Evaluate
-                                      </button>
                                     </>
                                   )}
                                   {slot.status === 'completed' && (
-                                    <div className="flex items-center gap-4">
-                                      <div className="flex items-center gap-1 text-[#4F46E5] font-bold">
-                                        <Trophy size={16} />
-                                        {slot.score}/10
-                                      </div>
-                                      {slot.passedToCallback ? (
-                                        <span className="flex items-center gap-1 text-[#10B981] text-xs font-bold bg-[#ECFDF5] px-2 py-1 rounded-md">
-                                          <CheckCircle2 size={14} /> CALLBACK
-                                        </span>
-                                      ) : (
-                                        <span className="flex items-center gap-1 text-[#EF4444] text-xs font-bold bg-[#FEF2F2] px-2 py-1 rounded-md">
-                                          <XCircle size={14} /> REJECTED
-                                        </span>
-                                      )}
-                                    </div>
+                                    <span className="flex items-center gap-1 text-[#10B981] text-xs font-bold bg-[#ECFDF5] px-2 py-1 rounded-md">
+                                      <CheckCircle2 size={14} /> COMPLETED
+                                    </span>
                                   )}
                                 </div>
                               </div>
@@ -1532,157 +1413,21 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'callbacks' && (
+          {activeTab === 'rounds' && (
             <motion.div
-              key="callbacks"
+              key="rounds"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 1.05 }}
-              className="max-w-5xl mx-auto"
             >
-              <div className="flex justify-between items-start mb-10">
-                <div>
-                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Section Placement</h2>
-                  <p className="text-[#6B7280]">Final decisions for participants who passed the initial round.</p>
-                </div>
-              </div>
-
-              <div className="mb-8">
-                <label className="block text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">Select Audition</label>
-                <select
-                  value={callbackAuditionId ?? ''}
-                  onChange={e => {
-                    const id = parseInt(e.target.value);
-                    if (id) handleSelectCallbackAudition(id);
-                  }}
-                  className="w-full max-w-md border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white font-medium focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                >
-                  <option value="" disabled>Choose an audition...</option>
-                  {[...auditions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(a => (
-                    <option key={a.id} value={a.id}>{a.title} — {a.date}</option>
-                  ))}
-                </select>
-              </div>
-
-              {!callbackAuditionId ? (
-                <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center">
-                  <Trophy size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
-                  <h3 className="text-lg font-bold text-[#374151] mb-2">Select an Audition</h3>
-                  <p className="text-sm text-[#6B7280]">Choose an audition above to view and manage its callbacks.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {(['pending', 'accepted', 'rejected'] as const).map(status => {
-                    const statusCallbacks = callbacksData.filter(cb => cb.finalDecision === status);
-                    const statusConfig = {
-                      pending: { color: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
-                      accepted: { color: 'text-[#10B981]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
-                      rejected: { color: 'text-[#EF4444]', bg: 'bg-[#FEF2F2]', border: 'border-[#FECACA]' },
-                    }[status];
-                    return (
-                      <div key={status} className="flex flex-col gap-4">
-                        <div className="flex items-center justify-between px-2">
-                          <h3 className={`font-bold uppercase tracking-widest text-xs ${statusConfig.color}`}>{status}</h3>
-                          <span className={`${statusConfig.bg} ${statusConfig.color} px-2 py-0.5 rounded-md text-[10px] font-bold`}>
-                            {statusCallbacks.length}
-                          </span>
-                        </div>
-                        <div className={`${statusConfig.bg} p-4 rounded-3xl min-h-[400px] border-2 border-dashed ${statusConfig.border} space-y-3`}>
-                          {statusCallbacks.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-[#9CA3AF] gap-2 min-h-[350px]">
-                              <Search size={32} strokeWidth={1.5} />
-                              <p className="text-sm font-medium">No applicants</p>
-                            </div>
-                          ) : (
-                            statusCallbacks.map(cb => {
-                              const cbUser = callbackUsers.find(u => u.userId === cb.userId);
-                              const score = getScoreForCallback(cb);
-                              return (
-                                <div key={cb.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] shadow-sm space-y-3">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold text-sm">
-                                      {cbUser?.firstName?.charAt(0) || '?'}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="font-bold text-sm truncate">{cbUser?.firstName} {cbUser?.lastName}</p>
-                                      <p className="text-xs text-[#6B7280] truncate">{cbUser?.email}</p>
-                                    </div>
-                                    {score !== null && (
-                                      <div className="flex items-center gap-1 text-[#4F46E5] font-bold text-sm">
-                                        <Trophy size={14} />
-                                        {score}/10
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {cb.notes && (
-                                    <p className="text-xs text-[#6B7280] line-clamp-2 italic">"{cb.notes}"</p>
-                                  )}
-
-                                  {cb.scheduledTime && (
-                                    <div className="flex items-center gap-1.5 text-xs font-medium text-[#4F46E5] bg-[#EEF2FF] px-2.5 py-1.5 rounded-lg">
-                                      <Calendar size={12} />
-                                      {cb.scheduledTime}
-                                    </div>
-                                  )}
-
-                                  <div className="flex flex-wrap gap-1.5 pt-1">
-                                    {status === 'pending' && (
-                                      <>
-                                        <button
-                                          onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'accepted' })}
-                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ECFDF5] text-[#10B981] rounded-lg text-xs font-bold hover:bg-[#D1FAE5] transition-colors"
-                                        >
-                                          <CheckCircle2 size={12} /> Accept
-                                        </button>
-                                        <button
-                                          onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'rejected' })}
-                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-[#FEF2F2] text-[#EF4444] rounded-lg text-xs font-bold hover:bg-[#FECACA] transition-colors"
-                                        >
-                                          <XCircle size={12} /> Reject
-                                        </button>
-                                      </>
-                                    )}
-                                    {status !== 'pending' && (
-                                      <button
-                                        onClick={() => handleUpdateCallback(cb.id, { finalDecision: 'pending' })}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-[#F3F4F6] text-[#6B7280] rounded-lg text-xs font-bold hover:bg-[#E5E7EB] transition-colors"
-                                      >
-                                        <Undo2 size={12} /> Undo
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        setShowScheduleCallback(cb);
-                                        setScheduleDateTime(cb.scheduledTime || '');
-                                      }}
-                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-[#F3F4F6] text-[#6B7280] rounded-lg text-xs font-bold hover:bg-[#E5E7EB] transition-colors"
-                                    >
-                                      <Clock size={12} /> Schedule
-                                    </button>
-                                    <button
-                                      onClick={() => handleNotifyCallback(cb.id)}
-                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-[#EEF2FF] text-[#4F46E5] rounded-lg text-xs font-bold hover:bg-[#E0E7FF] transition-colors"
-                                    >
-                                      <Mail size={12} /> Notify
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteCallback(cb.id)}
-                                      className="flex items-center gap-1 px-2.5 py-1.5 text-[#9CA3AF] rounded-lg text-xs font-bold hover:bg-[#FEF2F2] hover:text-[#EF4444] transition-colors"
-                                    >
-                                      <Trash2 size={12} />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <RoundsPage
+                authFetch={authFetch}
+                auditions={[
+                  ...auditions.map(a => ({ id: a.id, title: a.title, date: a.date, role: 'manager' as const })),
+                  ...judgingAuditions.map((a: any) => ({ id: a.id, title: a.title, date: a.date, role: 'judge' as const })),
+                ]}
+                initialAuditionId={roundsAuditionId}
+              />
             </motion.div>
           )}
 
@@ -1723,6 +1468,20 @@ function AppContent() {
                       <Filter size={16} />
                       Attribute Sets
                     </button>
+                    <button
+                      onClick={() => setSetupTab('scoringTemplates')}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'scoringTemplates' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                    >
+                      <Scale size={16} />
+                      Scoring Templates
+                    </button>
+                    <button
+                      onClick={() => setSetupTab('judges')}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'judges' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                    >
+                      <Gavel size={16} />
+                      Judges
+                    </button>
                   </>
                 )}
                 {(!orgMembership || orgMembership.role === 'owner') && (
@@ -1743,6 +1502,23 @@ function AppContent() {
                   </button>
                 )}
               </div>
+
+              {setupTab === 'judges' && !orgMembership && (
+                <JudgesEditor
+                  authFetch={authFetch}
+                  lockedMessage={currentSubscription?.plan === 'business' || currentSubscription?.plan === 'enterprise' ? undefined : (
+                    <>
+                      <p className="font-bold text-[#374151] mb-1">Judges are available on the Business plan</p>
+                      <p className="mb-4">Add the email addresses of people who can score participants in your auditions. You can always judge your own auditions.</p>
+                      <button onClick={() => setCheckoutPlan('business')} className="bg-[#4F46E5] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#4338CA]">Upgrade to Business</button>
+                    </>
+                  )}
+                />
+              )}
+
+              {setupTab === 'scoringTemplates' && !orgMembership && (
+                <ScoringTemplatesEditor authFetch={authFetch} />
+              )}
 
               {setupTab === 'general' && (
                 <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
@@ -2877,6 +2653,21 @@ function AppContent() {
                   <p className="text-xs text-[#9CA3AF] mt-1">The division this audition belongs to.</p>
                 </div>
               )}
+              <div className="pt-4 border-t border-[#F3F4F6]">
+                <p className="text-sm font-bold text-[#374151] mb-3">Audition settings</p>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newAudition.settings.blindJudging}
+                    onChange={e => setNewAudition({ ...newAudition, settings: { ...newAudition.settings, blindJudging: e.target.checked } })}
+                    className="mt-0.5 w-5 h-5 rounded border-[#D1D5DB] accent-[#4F46E5]"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-[#111827]">Blind judging</span>
+                    <span className="block text-xs text-[#6B7280]">Judges can't see each other's scores or comments. Organizers always see every score.</span>
+                  </span>
+                </label>
+              </div>
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -2914,7 +2705,7 @@ function AppContent() {
               You are about to permanently delete <span className="font-bold text-[#111827]">{selectedAudition.title}</span>.
             </p>
             <p className="text-sm text-[#6B7280] mb-6">
-              All data for this audition will be permanently lost, including time slots, evaluations, callbacks, and participant answers. This action cannot be undone.
+              All data for this audition will be permanently lost, including time slots, rounds, scores, and participant answers. This action cannot be undone.
             </p>
             <div className="mb-6">
               <label className="block text-sm font-bold text-[#374151] mb-1.5">
@@ -3101,74 +2892,6 @@ function AppContent() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
-
-      {evaluatingSlotId !== null && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
-          >
-            <h3 className="text-xl font-bold text-[#111827] mb-6">Evaluate Audition</h3>
-
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-bold text-[#374151] mb-1.5">Score (1-10)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={evalScore}
-                  onChange={e => setEvalScore(e.target.value)}
-                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent outline-none"
-                  placeholder="Enter score"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-[#374151] mb-1.5">Feedback</label>
-                <textarea
-                  value={evalFeedback}
-                  onChange={e => setEvalFeedback(e.target.value)}
-                  rows={3}
-                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent outline-none resize-none"
-                  placeholder="Enter feedback"
-                />
-              </div>
-
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={evalPass}
-                  onChange={e => setEvalPass(e.target.checked)}
-                  className="w-5 h-5 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
-                />
-                <span className="text-sm font-bold text-[#374151]">Pass to callback</span>
-              </label>
-            </div>
-
-            <div className="flex gap-3 mt-8">
-              <button
-                onClick={() => setEvaluatingSlotId(null)}
-                className="flex-1 bg-[#F3F4F6] text-[#111827] py-3 rounded-xl font-bold hover:bg-[#E5E7EB] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const s = parseInt(evalScore);
-                  if (!s || s < 1 || s > 10) return;
-                  handleCompleteAudition(evaluatingSlotId, s, evalFeedback, evalPass);
-                  setEvaluatingSlotId(null);
-                }}
-                className="flex-1 bg-[#4F46E5] text-white py-3 rounded-xl font-bold hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
-              >
-                Submit
-              </button>
-            </div>
           </motion.div>
         </div>
       )}
@@ -3434,72 +3157,6 @@ function AppContent() {
           </motion.div>
         </div>
       )}
-      {showScheduleCallback && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-2">Schedule Callback</h3>
-            {(() => {
-              const cbUser = callbackUsers.find(u => u.userId === showScheduleCallback.userId);
-              return (
-                <p className="text-[#6B7280] text-sm mb-6">
-                  Set a date and time for {cbUser?.firstName} {cbUser?.lastName}'s callback.
-                </p>
-              );
-            })()}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-[#374151] mb-1.5">Date & Time</label>
-                <input
-                  type="datetime-local"
-                  value={scheduleDateTime}
-                  onChange={e => setScheduleDateTime(e.target.value)}
-                  className="w-full border border-[#E5E7EB] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowScheduleCallback(null)}
-                  className="flex-1 px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    if (scheduleDateTime) {
-                      const formatted = new Date(scheduleDateTime).toLocaleString(undefined, {
-                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-                        hour: 'numeric', minute: '2-digit'
-                      });
-                      await handleUpdateCallback(showScheduleCallback.id, { scheduledTime: formatted });
-                    }
-                    setShowScheduleCallback(null);
-                  }}
-                  className="flex-1 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100"
-                >
-                  Save Schedule
-                </button>
-              </div>
-              {showScheduleCallback.scheduledTime && (
-                <button
-                  onClick={async () => {
-                    await handleUpdateCallback(showScheduleCallback.id, { scheduledTime: '' });
-                    setShowScheduleCallback(null);
-                  }}
-                  className="w-full text-center text-sm text-[#EF4444] font-medium hover:underline"
-                >
-                  Clear scheduled time
-                </button>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      )}
-
       {checkoutPlan && (
         <CheckoutModal
           plan={checkoutPlan}

@@ -2,14 +2,16 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { db } from './src/db';
-import { auditions, auditionSlots, callbacks, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions, attributeSets, attributeSetItems, organizations, orgUsers, divisions, divisionUsers } from './src/db/schema';
-import { eq, and, or, asc, gt, lte, desc, sql, inArray, isNull } from 'drizzle-orm';
+import { auditions, auditionSlots, judges, auditionRounds, roundCriteria, roundParticipants, roundEvaluations, roundScores, scoringTemplates, scoringTemplateCriteria, customAttributes, auditionUsers, auditionUserCustomFields, users, loginTokens, userSettings, reports, subscriptions, attributeSets, attributeSetItems, organizations, orgUsers, divisions, divisionUsers } from './src/db/schema';
+import { eq, and, or, asc, gt, lte, desc, sql, inArray, isNull, isNotNull } from 'drizzle-orm';
 import cors from 'cors';
 import { BrevoClient } from '@getbrevo/brevo';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import Stripe from 'stripe';
 import { getPlanLimits } from './src/planLimits';
+import { evaluateRound, type AdvanceRule } from './src/lib/roundScoring';
+import { normalizeAuditionSettings, mergeAuditionSettings } from './src/lib/auditionSettings';
 
 const client = new BrevoClient({ apiKey: process.env.BREVO_API_KEY || '' });
 
@@ -201,6 +203,75 @@ async function startServer() {
     return attr.userId === userId;
   }
 
+  // --- Judges ---
+  // Anyone who can manage an audition can judge it. Listed judge emails can judge auditions in the
+  // division (division auditions) or of the owner (personal auditions) that listed them.
+  const getUserEmail = async (userId: number) => {
+    const u = await db.select({ email: users.email }).from(users).where(eq(users.id, userId)).then(r => r[0]);
+    return u ? u.email.trim().toLowerCase() : null;
+  };
+
+  const judgeScopeCondition = (audition: { userId: number; divisionId: number | null }) =>
+    audition.divisionId
+      ? eq(judges.divisionId, audition.divisionId)
+      : and(eq(judges.ownerUserId, audition.userId), isNull(judges.divisionId));
+
+  const getAuditionRole = async (auditionId: number, userId: number): Promise<'manager' | 'judge' | null> => {
+    if (!Number.isFinite(auditionId)) return null;
+    if (await verifyAuditionOwnership(auditionId, userId)) return 'manager';
+    const audition = await db.select({ userId: auditions.userId, divisionId: auditions.divisionId })
+      .from(auditions).where(eq(auditions.id, auditionId)).then(r => r[0]);
+    if (!audition) return null;
+    const email = await getUserEmail(userId);
+    if (!email) return null;
+    const listed = await db.select({ id: judges.id }).from(judges)
+      .where(and(eq(judges.email, email), judgeScopeCondition(audition))).limit(1);
+    return listed.length > 0 ? 'judge' : null;
+  };
+
+  const getAuditionSettings = async (auditionId: number) => {
+    const row = await db.select({ settings: auditions.settings }).from(auditions).where(eq(auditions.id, auditionId)).then(r => r[0]);
+    return normalizeAuditionSettings(row?.settings);
+  };
+
+  // Auditions a user can judge only because their email is on a judge list
+  const getJudgeOnlyAuditions = async (userId: number) => {
+    const email = await getUserEmail(userId);
+    if (!email) return [];
+    const rows = await db.selectDistinct({
+      id: auditions.id,
+      title: auditions.title,
+      date: auditions.date,
+      location: auditions.location,
+      status: auditions.status,
+      divisionId: auditions.divisionId,
+      divisionTitle: divisions.title,
+    }).from(judges)
+      .innerJoin(auditions, or(
+        and(isNotNull(judges.divisionId), eq(auditions.divisionId, judges.divisionId)),
+        and(isNotNull(judges.ownerUserId), eq(auditions.userId, judges.ownerUserId), isNull(auditions.divisionId)),
+      ))
+      .leftJoin(divisions, eq(divisions.id, auditions.divisionId))
+      .where(eq(judges.email, email));
+    const managed = new Set((await db.select({ id: auditions.id }).from(auditions)
+      .where(await getAccessibleAuditionConditions(userId))).map(a => a.id));
+    return rows.filter(r => !managed.has(r.id));
+  };
+
+  // Who can maintain a judge list: division managers/admins/owner for a division; the account owner
+  // (Business or Enterprise plan) for their personal auditions.
+  const canManageJudgeScope = async (userId: number, divisionId: number | null): Promise<string | null> => {
+    if (divisionId) {
+      const divIds = await getAccessibleDivisionIds(userId);
+      return divIds.includes(divisionId) ? null : 'Forbidden';
+    }
+    const sub = await db.select({ plan: subscriptions.plan }).from(subscriptions)
+      .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+      .orderBy(desc(subscriptions.createdAt)).then(r => r[0]);
+    if (sub?.plan !== 'business' && sub?.plan !== 'enterprise') return 'Judges require a Business or Enterprise plan';
+    return null;
+  };
+
   // --- API Routes ---
 
   // Admin Stats (restricted to user id 10)
@@ -219,10 +290,10 @@ async function startServer() {
         totalSlotsResult,
         bookedSlotsResult,
         completedSlotsResult,
-        totalCallbacksResult,
-        acceptedCallbacksResult,
-        rejectedCallbacksResult,
-        pendingCallbacksResult,
+        totalRoundsResult,
+        openRoundsResult,
+        closedRoundsResult,
+        totalEvaluationsResult,
         totalInviteSignupsResult,
         subscriptionsByPlanResult,
         auditionsByStatusResult,
@@ -236,10 +307,10 @@ async function startServer() {
         db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots),
         db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots).where(eq(auditionSlots.status, 'booked')),
         db.select({ count: sql<number>`count(*)::int` }).from(auditionSlots).where(eq(auditionSlots.status, 'completed')),
-        db.select({ count: sql<number>`count(*)::int` }).from(callbacks),
-        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'accepted')),
-        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'rejected')),
-        db.select({ count: sql<number>`count(*)::int` }).from(callbacks).where(eq(callbacks.finalDecision, 'pending')),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionRounds),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionRounds).where(eq(auditionRounds.status, 'open')),
+        db.select({ count: sql<number>`count(*)::int` }).from(auditionRounds).where(eq(auditionRounds.status, 'closed')),
+        db.select({ count: sql<number>`count(*)::int` }).from(roundEvaluations),
         db.select({ count: sql<number>`count(*)::int` }).from(auditionUsers),
         db.select({ plan: subscriptions.plan, count: sql<number>`count(*)::int` }).from(subscriptions).where(eq(subscriptions.status, 'active')).groupBy(subscriptions.plan),
         db.select({ status: auditions.status, count: sql<number>`count(*)::int` }).from(auditions).groupBy(auditions.status),
@@ -256,10 +327,10 @@ async function startServer() {
         totalSlots: totalSlotsResult[0].count,
         bookedSlots: bookedSlotsResult[0].count,
         completedSlots: completedSlotsResult[0].count,
-        totalCallbacks: totalCallbacksResult[0].count,
-        acceptedCallbacks: acceptedCallbacksResult[0].count,
-        rejectedCallbacks: rejectedCallbacksResult[0].count,
-        pendingCallbacks: pendingCallbacksResult[0].count,
+        totalRounds: totalRoundsResult[0].count,
+        openRounds: openRoundsResult[0].count,
+        closedRounds: closedRoundsResult[0].count,
+        totalEvaluations: totalEvaluationsResult[0].count,
         subscriptionsByPlan: subscriptionsByPlanResult,
         auditionsByStatus: auditionsByStatusResult,
         recentUsers: recentUsersResult,
@@ -641,6 +712,7 @@ async function startServer() {
           status: auditions.status,
           inviteCode: auditions.inviteCode,
           attributeSetId: auditions.attributeSetId,
+          settings: auditions.settings,
           divisionId: auditions.divisionId,
           divisionTitle: sql<string | null>`(select title from divisions where divisions.id = auditions.division_id)`,
           createdAt: auditions.createdAt,
@@ -675,7 +747,7 @@ async function startServer() {
           });
         }
       }
-      const { inviteCode, attributeSetId, divisionId: rawDivisionId, ...rest } = req.body;
+      const { inviteCode, attributeSetId, divisionId: rawDivisionId, settings, ...rest } = req.body;
       const code = (inviteCode || generateInviteCode()).trim();
       if (code.length === 0 || code.length > 31) {
         return res.status(400).json({ error: 'Invite code must be between 1 and 31 characters' });
@@ -713,7 +785,7 @@ async function startServer() {
         }
       }
 
-      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code, attributeSetId: setId || null, divisionId }).returning();
+      const newAudition = await db.insert(auditions).values({ ...rest, userId, inviteCode: code, attributeSetId: setId || null, divisionId, settings: normalizeAuditionSettings(settings) }).returning();
       res.json(newAudition[0]);
     } catch (err) {
       res.status(500).json({ error: 'Failed to create audition' });
@@ -728,7 +800,7 @@ async function startServer() {
       return res.status(403).json({ error: 'Not authorized' });
     }
     try {
-      const { title, description, date, location, status, inviteCode, attributeSetId } = req.body;
+      const { title, description, date, location, status, inviteCode, attributeSetId, settings } = req.body;
       if (inviteCode !== undefined) {
         const code = inviteCode.trim();
         if (code.length === 0 || code.length > 31) {
@@ -751,6 +823,10 @@ async function startServer() {
       if (status !== undefined) updates.status = status;
       if (inviteCode !== undefined) updates.inviteCode = inviteCode.trim();
       if (attributeSetId !== undefined) updates.attributeSetId = attributeSetId ? parseInt(attributeSetId) : null;
+      if (settings !== undefined) {
+        const current = await db.select({ settings: auditions.settings }).from(auditions).where(eq(auditions.id, auditionId)).then(r => r[0]);
+        updates.settings = mergeAuditionSettings(current?.settings, settings);
+      }
       const updated = await db.update(auditions).set(updates).where(eq(auditions.id, auditionId)).returning();
       res.json(updated[0]);
     } catch (err) {
@@ -774,7 +850,7 @@ async function startServer() {
       }
       await db.delete(auditionUsers).where(eq(auditionUsers.auditionId, auditionId));
       await db.delete(auditionSlots).where(eq(auditionSlots.auditionId, auditionId));
-      await db.delete(callbacks).where(eq(callbacks.auditionId, auditionId));
+      await db.delete(auditionRounds).where(eq(auditionRounds.auditionId, auditionId));
       await db.delete(auditions).where(eq(auditions.id, auditionId));
       res.json({ success: true });
     } catch (err) {
@@ -815,8 +891,13 @@ async function startServer() {
     try {
       const slot = await db.select().from(auditionSlots).where(eq(auditionSlots.id, parseInt(req.params.id))).then(rows => rows[0]);
       if (!slot || !slot.auditionId || !await verifyAuditionOwnership(slot.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
+      const updates: Record<string, any> = {};
+      for (const key of ['userId', 'status', 'date', 'startTime', 'endTime'] as const) {
+        if (req.body?.[key] !== undefined) updates[key] = req.body[key];
+      }
+      if (Object.keys(updates).length === 0) return res.json(slot);
       const updatedSlot = await db.update(auditionSlots)
-        .set(req.body)
+        .set(updates)
         .where(eq(auditionSlots.id, parseInt(req.params.id)))
         .returning();
       res.json(updatedSlot[0]);
@@ -839,112 +920,922 @@ async function startServer() {
     }
   });
 
-  // Callbacks
-  app.get('/api/auditions/:id/callbacks', async (req, res) => {
+  // --- Scoring Templates & Rounds ---
+
+  type CriterionInput = { id?: number; title: string; description: string | null; maxScore: number; weight: number };
+
+  const toNumber = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
+  // Validates a criteria array from a request body. Returns an error string or the cleaned list.
+  const parseCriteriaInput = (input: unknown): CriterionInput[] | string => {
+    if (!Array.isArray(input)) return 'Criteria must be a list';
+    const out: CriterionInput[] = [];
+    for (const raw of input) {
+      const title = typeof raw?.title === 'string' ? raw.title.trim() : '';
+      if (!title) return 'Each criterion needs a title';
+      const maxScore = toNumber(raw?.maxScore) ?? 10;
+      const weight = toNumber(raw?.weight) ?? 1;
+      if (maxScore <= 0) return `Max score for "${title}" must be greater than 0`;
+      if (weight < 0) return `Weight for "${title}" cannot be negative`;
+      out.push({
+        id: typeof raw?.id === 'number' ? raw.id : undefined,
+        title,
+        description: typeof raw?.description === 'string' && raw.description.trim() ? raw.description.trim() : null,
+        maxScore,
+        weight,
+      });
+    }
+    return out;
+  };
+
+  const DEFAULT_CRITERIA: CriterionInput[] = [{ title: 'Overall', description: null, maxScore: 10, weight: 1 }];
+
+  const getTemplatesWithCriteria = async (templateIds: number[]) => {
+    if (templateIds.length === 0) return [];
+    const [templates, criteria] = await Promise.all([
+      db.select().from(scoringTemplates).where(inArray(scoringTemplates.id, templateIds)),
+      db.select().from(scoringTemplateCriteria).where(inArray(scoringTemplateCriteria.templateId, templateIds)).orderBy(asc(scoringTemplateCriteria.order), asc(scoringTemplateCriteria.id)),
+    ]);
+    return templates.map(t => ({ ...t, criteria: criteria.filter(c => c.templateId === t.id) }));
+  };
+
+  const loadAccessibleTemplate = async (templateId: number, userId: number) => {
+    const template = await db.select().from(scoringTemplates).where(eq(scoringTemplates.id, templateId)).then(r => r[0]);
+    if (!template) return null;
+    const divIds = await getAccessibleDivisionIds(userId);
+    if (!canAccessAttribute({ userId: template.userId ?? 0, divisionId: template.divisionId }, userId, divIds)) return null;
+    return template;
+  };
+
+  const loadRoundForUser = async (roundId: number, userId: number) => {
+    if (!Number.isFinite(roundId)) return null;
+    const round = await db.select().from(auditionRounds).where(eq(auditionRounds.id, roundId)).then(r => r[0]);
+    if (!round || !await verifyAuditionOwnership(round.auditionId, userId)) return null;
+    return round;
+  };
+
+  const loadRoundParticipantForUser = async (rpId: number, userId: number) => {
+    if (!Number.isFinite(rpId)) return null;
+    const participant = await db.select().from(roundParticipants).where(eq(roundParticipants.id, rpId)).then(r => r[0]);
+    if (!participant) return null;
+    const round = await loadRoundForUser(participant.roundId, userId);
+    if (!round) return null;
+    return { participant, round };
+  };
+
+  // Like loadRoundForUser, but also lets listed judges in (for viewing and scoring only)
+  const loadRoundWithRole = async (roundId: number, userId: number) => {
+    if (!Number.isFinite(roundId)) return null;
+    const round = await db.select().from(auditionRounds).where(eq(auditionRounds.id, roundId)).then(r => r[0]);
+    if (!round) return null;
+    const role = await getAuditionRole(round.auditionId, userId);
+    if (!role) return null;
+    return { round, role };
+  };
+
+  const loadRoundParticipantWithRole = async (rpId: number, userId: number) => {
+    if (!Number.isFinite(rpId)) return null;
+    const participant = await db.select().from(roundParticipants).where(eq(roundParticipants.id, rpId)).then(r => r[0]);
+    if (!participant) return null;
+    const found = await loadRoundWithRole(participant.roundId, userId);
+    if (!found) return null;
+    return { participant, ...found };
+  };
+
+  // Resolve criteria for a new round from a template, an explicit list, or the default.
+  const resolveCriteriaSource = async (userId: number, templateId: unknown, criteria: unknown): Promise<CriterionInput[] | string> => {
+    if (templateId) {
+      const template = await loadAccessibleTemplate(Number(templateId), userId);
+      if (!template) return 'Template not found';
+      const [withCriteria] = await getTemplatesWithCriteria([template.id]);
+      if (withCriteria.criteria.length === 0) return 'Template has no criteria';
+      return withCriteria.criteria.map(c => ({ title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight }));
+    }
+    if (criteria !== undefined) {
+      const parsed = parseCriteriaInput(criteria);
+      if (typeof parsed === 'string') return parsed;
+      return parsed.length > 0 ? parsed : DEFAULT_CRITERIA;
+    }
+    return DEFAULT_CRITERIA;
+  };
+
+  // Load everything needed to score a round: criteria + participants with all judges' evaluations.
+  const loadRoundScoringData = async (roundId: number, executor: any = db) => {
+    const criteria = await executor.select().from(roundCriteria).where(eq(roundCriteria.roundId, roundId))
+      .orderBy(asc(roundCriteria.order), asc(roundCriteria.id));
+    const participants = await executor.select().from(roundParticipants).where(eq(roundParticipants.roundId, roundId));
+    const rpIds = participants.map((p: any) => p.id);
+    const evaluations = rpIds.length > 0
+      ? await executor.select({
+          id: roundEvaluations.id,
+          roundParticipantId: roundEvaluations.roundParticipantId,
+          judgeUserId: roundEvaluations.judgeUserId,
+          comment: roundEvaluations.comment,
+          updatedAt: roundEvaluations.updatedAt,
+          judgeFirstName: users.firstName,
+          judgeLastName: users.lastName,
+        }).from(roundEvaluations)
+          .innerJoin(users, eq(users.id, roundEvaluations.judgeUserId))
+          .where(inArray(roundEvaluations.roundParticipantId, rpIds))
+      : [];
+    const evIds = evaluations.map((e: any) => e.id);
+    const scores = evIds.length > 0
+      ? await executor.select().from(roundScores).where(inArray(roundScores.evaluationId, evIds))
+      : [];
+    const scoresByEval = new Map<number, { criterionId: number; score: number }[]>();
+    for (const s of scores) {
+      let arr = scoresByEval.get(s.evaluationId);
+      if (!arr) { arr = []; scoresByEval.set(s.evaluationId, arr); }
+      arr.push({ criterionId: s.roundCriterionId, score: s.score });
+    }
+    const evalsByParticipant = new Map<number, any[]>();
+    for (const e of evaluations) {
+      let arr = evalsByParticipant.get(e.roundParticipantId);
+      if (!arr) { arr = []; evalsByParticipant.set(e.roundParticipantId, arr); }
+      arr.push({
+        id: e.id,
+        judgeUserId: e.judgeUserId,
+        judgeName: `${e.judgeFirstName} ${e.judgeLastName}`.trim(),
+        comment: e.comment,
+        updatedAt: e.updatedAt,
+        scores: scoresByEval.get(e.id) || [],
+      });
+    }
+    return {
+      criteria,
+      participants: participants.map((p: any) => ({ ...p, evaluations: evalsByParticipant.get(p.id) || [] })),
+    };
+  };
+
+  const insertRoundCriteria = async (executor: any, roundId: number, criteria: CriterionInput[]) => {
+    if (criteria.length === 0) return;
+    await executor.insert(roundCriteria).values(criteria.map((c, i) => ({
+      roundId, title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i,
+    })));
+  };
+
+  const addAuditionUsersToRound = async (roundId: number, auditionId: number, onlyAuditionUserIds?: number[]) => {
+    const conditions = [eq(auditionUsers.auditionId, auditionId)];
+    if (onlyAuditionUserIds) {
+      if (onlyAuditionUserIds.length === 0) return 0;
+      conditions.push(inArray(auditionUsers.id, onlyAuditionUserIds));
+    }
+    const auRows = await db.select({ id: auditionUsers.id }).from(auditionUsers).where(and(...conditions));
+    if (auRows.length === 0) return 0;
+    const inserted = await db.insert(roundParticipants)
+      .values(auRows.map(au => ({ roundId, auditionUserId: au.id })))
+      .onConflictDoNothing()
+      .returning({ id: roundParticipants.id });
+    return inserted.length;
+  };
+
+  // Judge lists
+  app.get('/api/judges', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const divisionId = req.query.divisionId ? parseInt(String(req.query.divisionId)) : null;
+      if (divisionId) {
+        const divIds = await getAccessibleDivisionIds(userId);
+        if (!divIds.includes(divisionId)) return res.status(403).json({ error: 'Forbidden' });
+      }
+      const rows = await db.select({
+        id: judges.id,
+        email: judges.email,
+        createdAt: judges.createdAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      }).from(judges)
+        .leftJoin(users, eq(sql`lower(${users.email})`, judges.email))
+        .where(divisionId ? eq(judges.divisionId, divisionId) : and(eq(judges.ownerUserId, userId), isNull(judges.divisionId)))
+        .orderBy(asc(judges.email));
+      res.json(rows.map(r => ({ ...r, hasAccount: r.firstName !== null })));
+    } catch (err) {
+      console.error('Failed to fetch judges:', err);
+      res.status(500).json({ error: 'Failed to fetch judges' });
+    }
+  });
+
+  app.post('/api/judges', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+      const divisionId = req.body?.divisionId ? Number(req.body.divisionId) : null;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+      const denied = await canManageJudgeScope(userId, divisionId);
+      if (denied) return res.status(403).json({ error: denied });
+      const [row] = await db.insert(judges).values({
+        email,
+        divisionId,
+        ownerUserId: divisionId ? null : userId,
+        addedByUserId: userId,
+      }).onConflictDoNothing().returning();
+      if (!row) return res.status(409).json({ error: 'That email is already a judge' });
+      res.json(row);
+    } catch (err) {
+      console.error('Failed to add judge:', err);
+      res.status(500).json({ error: 'Failed to add judge' });
+    }
+  });
+
+  app.delete('/api/judges/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const row = await db.select().from(judges).where(eq(judges.id, parseInt(req.params.id))).then(r => r[0]);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      if (row.divisionId) {
+        const divIds = await getAccessibleDivisionIds(userId);
+        if (!divIds.includes(row.divisionId)) return res.status(403).json({ error: 'Forbidden' });
+      } else if (row.ownerUserId !== userId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      await db.delete(judges).where(eq(judges.id, row.id));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to remove judge' });
+    }
+  });
+
+  // Auditions the current user can judge because they're on a judge list, with their progress in any open round
+  app.get('/api/judging', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const list = await getJudgeOnlyAuditions(userId);
+      if (list.length === 0) return res.json([]);
+      const openRounds = await db.select().from(auditionRounds)
+        .where(and(inArray(auditionRounds.auditionId, list.map(a => a.id)), eq(auditionRounds.status, 'open')));
+      const roundIds = openRounds.map(r => r.id);
+      const [criteriaCounts, participantCounts, myScoreCounts] = roundIds.length > 0 ? await Promise.all([
+        db.select({ roundId: roundCriteria.roundId, n: sql<number>`count(*)::int` }).from(roundCriteria)
+          .where(inArray(roundCriteria.roundId, roundIds)).groupBy(roundCriteria.roundId),
+        db.select({ roundId: roundParticipants.roundId, n: sql<number>`count(*)::int` }).from(roundParticipants)
+          .where(inArray(roundParticipants.roundId, roundIds)).groupBy(roundParticipants.roundId),
+        // Scores I've entered per participant, to count people I've fully scored
+        db.select({ roundId: roundParticipants.roundId, participantId: roundParticipants.id, n: sql<number>`count(*)::int` })
+          .from(roundScores)
+          .innerJoin(roundEvaluations, eq(roundEvaluations.id, roundScores.evaluationId))
+          .innerJoin(roundParticipants, eq(roundParticipants.id, roundEvaluations.roundParticipantId))
+          .where(and(inArray(roundParticipants.roundId, roundIds), eq(roundEvaluations.judgeUserId, userId)))
+          .groupBy(roundParticipants.roundId, roundParticipants.id),
+      ]) : [[], [], []];
+      res.json(list.map(a => {
+        const round = openRounds.find(r => r.auditionId === a.id);
+        if (!round) return { ...a, openRound: null };
+        const criteriaCount = criteriaCounts.find(c => c.roundId === round.id)?.n ?? 0;
+        return {
+          ...a,
+          openRound: {
+            id: round.id,
+            title: round.title,
+            participantCount: participantCounts.find(c => c.roundId === round.id)?.n ?? 0,
+            scoredByMe: myScoreCounts.filter(c => c.roundId === round.id && c.n >= criteriaCount).length,
+          },
+        };
+      }));
+    } catch (err) {
+      console.error('Failed to fetch judging list:', err);
+      res.status(500).json({ error: 'Failed to fetch judging list' });
+    }
+  });
+
+  // Scoring templates (user-level or division-level, same scoping as attribute sets)
+  app.get('/api/scoring-templates', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const divIds = await getAccessibleDivisionIds(userId);
+      const userOrg = await getUserOrg(userId);
+      const conditions: any[] = [];
+      if (!userOrg) conditions.push(and(eq(scoringTemplates.userId, userId), isNull(scoringTemplates.divisionId)));
+      if (divIds.length > 0) conditions.push(inArray(scoringTemplates.divisionId, divIds));
+      if (conditions.length === 0) return res.json([]);
+      const rows = await db.select({ id: scoringTemplates.id }).from(scoringTemplates).where(or(...conditions));
+      const templates = await getTemplatesWithCriteria(rows.map(r => r.id));
+      templates.sort((a, b) => a.name.localeCompare(b.name));
+      res.json(templates);
+    } catch (err) {
+      console.error('Failed to fetch scoring templates:', err);
+      res.status(500).json({ error: 'Failed to fetch scoring templates' });
+    }
+  });
+
+  app.post('/api/scoring-templates', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const { name, description, divisionId, criteria } = req.body || {};
+      if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+      const parsed = parseCriteriaInput(criteria ?? []);
+      if (typeof parsed === 'string') return res.status(400).json({ error: parsed });
+      if (parsed.length === 0) return res.status(400).json({ error: 'Add at least one criterion' });
+      const divIds = await getAccessibleDivisionIds(userId);
+      if (divisionId && !divIds.includes(Number(divisionId))) return res.status(403).json({ error: 'Forbidden' });
+      const [template] = await db.insert(scoringTemplates).values({
+        userId,
+        divisionId: divisionId ? Number(divisionId) : null,
+        name: name.trim(),
+        description: typeof description === 'string' && description.trim() ? description.trim() : null,
+      }).returning();
+      await db.insert(scoringTemplateCriteria).values(parsed.map((c, i) => ({
+        templateId: template.id, title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i,
+      })));
+      const [result] = await getTemplatesWithCriteria([template.id]);
+      res.json(result);
+    } catch (err) {
+      console.error('Failed to create scoring template:', err);
+      res.status(500).json({ error: 'Failed to create scoring template' });
+    }
+  });
+
+  app.patch('/api/scoring-templates/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const template = await loadAccessibleTemplate(parseInt(req.params.id), userId);
+      if (!template) return res.status(404).json({ error: 'Not found' });
+      const { name, description, criteria } = req.body || {};
+      const updates: Record<string, any> = { updatedAt: new Date() };
+      if (name !== undefined) {
+        if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+        updates.name = name.trim();
+      }
+      if (description !== undefined) {
+        updates.description = typeof description === 'string' && description.trim() ? description.trim() : null;
+      }
+      let parsed: CriterionInput[] | null = null;
+      if (criteria !== undefined) {
+        const result = parseCriteriaInput(criteria);
+        if (typeof result === 'string') return res.status(400).json({ error: result });
+        if (result.length === 0) return res.status(400).json({ error: 'Add at least one criterion' });
+        parsed = result;
+      }
+      await db.transaction(async (tx) => {
+        await tx.update(scoringTemplates).set(updates).where(eq(scoringTemplates.id, template.id));
+        if (parsed) {
+          await tx.delete(scoringTemplateCriteria).where(eq(scoringTemplateCriteria.templateId, template.id));
+          await tx.insert(scoringTemplateCriteria).values(parsed.map((c, i) => ({
+            templateId: template.id, title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i,
+          })));
+        }
+      });
+      const [result] = await getTemplatesWithCriteria([template.id]);
+      res.json(result);
+    } catch (err) {
+      console.error('Failed to update scoring template:', err);
+      res.status(500).json({ error: 'Failed to update scoring template' });
+    }
+  });
+
+  app.delete('/api/scoring-templates/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const template = await loadAccessibleTemplate(parseInt(req.params.id), userId);
+      if (!template) return res.status(404).json({ error: 'Not found' });
+      await db.delete(scoringTemplates).where(eq(scoringTemplates.id, template.id));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete scoring template' });
+    }
+  });
+
+  // Copy a template, optionally into another scope (personal or a division)
+  app.post('/api/scoring-templates/:id/duplicate', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const template = await loadAccessibleTemplate(parseInt(req.params.id), userId);
+      if (!template) return res.status(404).json({ error: 'Not found' });
+      const body = req.body || {};
+      const targetDivisionId = body.divisionId === undefined ? template.divisionId : (body.divisionId ? Number(body.divisionId) : null);
+      if (targetDivisionId) {
+        const divIds = await getAccessibleDivisionIds(userId);
+        if (!divIds.includes(targetDivisionId)) return res.status(403).json({ error: 'Forbidden' });
+      }
+      const [source] = await getTemplatesWithCriteria([template.id]);
+      const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : `${template.name} (copy)`;
+      const [copy] = await db.insert(scoringTemplates).values({
+        userId, divisionId: targetDivisionId, name, description: template.description,
+      }).returning();
+      if (source.criteria.length > 0) {
+        await db.insert(scoringTemplateCriteria).values(source.criteria.map((c, i) => ({
+          templateId: copy.id, title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i,
+        })));
+      }
+      const [result] = await getTemplatesWithCriteria([copy.id]);
+      res.json(result);
+    } catch (err) {
+      console.error('Failed to duplicate scoring template:', err);
+      res.status(500).json({ error: 'Failed to duplicate scoring template' });
+    }
+  });
+
+  // Rounds
+  app.get('/api/auditions/:id/rounds', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const auditionId = parseInt(req.params.id);
+    if (!await getAuditionRole(auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      const rounds = await db.select().from(auditionRounds).where(eq(auditionRounds.auditionId, auditionId))
+        .orderBy(asc(auditionRounds.roundNumber));
+      const roundIds = rounds.map(r => r.id);
+      const [criteria, counts] = roundIds.length > 0 ? await Promise.all([
+        db.select().from(roundCriteria).where(inArray(roundCriteria.roundId, roundIds)).orderBy(asc(roundCriteria.order), asc(roundCriteria.id)),
+        db.select({
+          roundId: roundParticipants.roundId,
+          total: sql<number>`count(*)::int`,
+          advanced: sql<number>`count(*) filter (where ${roundParticipants.status} = 'advanced')::int`,
+        }).from(roundParticipants).where(inArray(roundParticipants.roundId, roundIds)).groupBy(roundParticipants.roundId),
+      ]) : [[], []];
+      res.json(rounds.map(r => {
+        const c = counts.find(x => x.roundId === r.id);
+        return {
+          ...r,
+          criteria: criteria.filter(x => x.roundId === r.id),
+          participantCount: c?.total ?? 0,
+          advancedCount: c?.advanced ?? 0,
+        };
+      }));
+    } catch (err) {
+      console.error('Failed to fetch rounds:', err);
+      res.status(500).json({ error: 'Failed to fetch rounds' });
+    }
+  });
+
+  // Start Round 1 with every audition participant
+  app.post('/api/auditions/:id/rounds', async (req, res) => {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     const auditionId = parseInt(req.params.id);
     if (!await verifyAuditionOwnership(auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
     try {
-      const auditionCallbacks = await db.select().from(callbacks).where(eq(callbacks.auditionId, auditionId));
-      res.json(auditionCallbacks);
+      const existing = await db.select({ id: auditionRounds.id }).from(auditionRounds).where(eq(auditionRounds.auditionId, auditionId));
+      if (existing.length > 0) return res.status(400).json({ error: 'This audition already has rounds' });
+      const { title, templateId, criteria } = req.body || {};
+      const resolved = await resolveCriteriaSource(userId, templateId, criteria);
+      if (typeof resolved === 'string') return res.status(400).json({ error: resolved });
+      const [round] = await db.insert(auditionRounds).values({
+        auditionId,
+        roundNumber: 1,
+        title: typeof title === 'string' && title.trim() ? title.trim() : 'Round 1',
+      }).returning();
+      await insertRoundCriteria(db, round.id, resolved);
+      await addAuditionUsersToRound(round.id, auditionId);
+      res.json(round);
     } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch callbacks' });
+      console.error('Failed to create round:', err);
+      res.status(500).json({ error: 'Failed to create round' });
     }
   });
 
-  app.post('/api/callbacks', async (req, res) => {
-    const userId = getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-    if (!await verifyAuditionOwnership(req.body.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
-    try {
-      const newCallback = await db.insert(callbacks).values(req.body).returning();
-      res.json(newCallback[0]);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to create callback' });
-    }
-  });
-
-  app.patch('/api/callbacks/:id', async (req, res) => {
+  app.patch('/api/rounds/:id', async (req, res) => {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const callback = await db.select().from(callbacks).where(eq(callbacks.id, parseInt(req.params.id))).then(rows => rows[0]);
-      if (!callback || !callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
-      const updated = await db.update(callbacks)
-        .set(req.body)
-        .where(eq(callbacks.id, parseInt(req.params.id)))
-        .returning();
-      if (updated.length === 0) {
-        res.status(404).json({ error: 'Callback not found' });
-        return;
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      const { title, advanceRule, advanceValue } = req.body || {};
+      const updates: Record<string, any> = {};
+      if (title !== undefined) {
+        if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+        updates.title = title.trim();
       }
-      res.json(updated[0]);
+      if (advanceRule !== undefined) {
+        if (advanceRule !== 'top_n' && advanceRule !== 'min_score') return res.status(400).json({ error: 'Invalid advance rule' });
+        updates.advanceRule = advanceRule;
+      }
+      if (advanceValue !== undefined) updates.advanceValue = toNumber(advanceValue);
+      if (Object.keys(updates).length === 0) return res.json(round);
+      const [updated] = await db.update(auditionRounds).set(updates).where(eq(auditionRounds.id, round.id)).returning();
+      res.json(updated);
     } catch (err) {
-      res.status(500).json({ error: 'Failed to update callback' });
+      res.status(500).json({ error: 'Failed to update round' });
     }
   });
 
-  app.delete('/api/callbacks/:id', async (req, res) => {
+  // Replace a round's criteria. Existing criteria (by id) keep their scores; removed ones lose them.
+  app.put('/api/rounds/:id/criteria', async (req, res) => {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const callback = await db.select().from(callbacks).where(eq(callbacks.id, parseInt(req.params.id))).then(rows => rows[0]);
-      if (!callback || !callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
-      await db.delete(callbacks).where(eq(callbacks.id, parseInt(req.params.id)));
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      if (round.status !== 'open') return res.status(400).json({ error: 'Round is closed' });
+      const parsed = parseCriteriaInput(req.body?.criteria);
+      if (typeof parsed === 'string') return res.status(400).json({ error: parsed });
+      if (parsed.length === 0) return res.status(400).json({ error: 'Add at least one criterion' });
+      await db.transaction(async (tx) => {
+        const current = await tx.select({ id: roundCriteria.id }).from(roundCriteria).where(eq(roundCriteria.roundId, round.id));
+        const currentIds = new Set(current.map(c => c.id));
+        const keepIds = new Set(parsed.filter(c => c.id && currentIds.has(c.id)).map(c => c.id!));
+        const removeIds = [...currentIds].filter(id => !keepIds.has(id));
+        if (removeIds.length > 0) await tx.delete(roundCriteria).where(inArray(roundCriteria.id, removeIds));
+        for (let i = 0; i < parsed.length; i++) {
+          const c = parsed[i];
+          const values = { title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i };
+          if (c.id && keepIds.has(c.id)) {
+            await tx.update(roundCriteria).set(values).where(eq(roundCriteria.id, c.id));
+          } else {
+            await tx.insert(roundCriteria).values({ roundId: round.id, ...values });
+          }
+        }
+      });
+      const criteria = await db.select().from(roundCriteria).where(eq(roundCriteria.roundId, round.id))
+        .orderBy(asc(roundCriteria.order), asc(roundCriteria.id));
+      res.json(criteria);
+    } catch (err) {
+      console.error('Failed to update round criteria:', err);
+      res.status(500).json({ error: 'Failed to update criteria' });
+    }
+  });
+
+  app.post('/api/rounds/:id/save-as-template', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      const { name, description } = req.body || {};
+      if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+      // Default to the audition's division so org members can see the template
+      let divisionId: number | null;
+      if (req.body?.divisionId !== undefined) {
+        divisionId = req.body.divisionId ? Number(req.body.divisionId) : null;
+      } else {
+        const audition = await db.select({ divisionId: auditions.divisionId }).from(auditions).where(eq(auditions.id, round.auditionId)).then(r => r[0]);
+        divisionId = audition?.divisionId ?? null;
+      }
+      if (divisionId) {
+        const divIds = await getAccessibleDivisionIds(userId);
+        if (!divIds.includes(divisionId)) return res.status(403).json({ error: 'Forbidden' });
+      }
+      const criteria = await db.select().from(roundCriteria).where(eq(roundCriteria.roundId, round.id))
+        .orderBy(asc(roundCriteria.order), asc(roundCriteria.id));
+      const [template] = await db.insert(scoringTemplates).values({
+        userId, divisionId, name: name.trim(),
+        description: typeof description === 'string' && description.trim() ? description.trim() : null,
+      }).returning();
+      if (criteria.length > 0) {
+        await db.insert(scoringTemplateCriteria).values(criteria.map((c, i) => ({
+          templateId: template.id, title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight, order: i,
+        })));
+      }
+      const [result] = await getTemplatesWithCriteria([template.id]);
+      res.json(result);
+    } catch (err) {
+      console.error('Failed to save template from round:', err);
+      res.status(500).json({ error: 'Failed to save template' });
+    }
+  });
+
+  app.get('/api/rounds/:id/participants', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const found = await loadRoundWithRole(parseInt(req.params.id), userId);
+      if (!found) return res.status(404).json({ error: 'Round not found' });
+      const { round, role } = found;
+      const isJudge = role === 'judge';
+      const blind = isJudge && (await getAuditionSettings(round.auditionId)).blindJudging;
+      const { criteria, participants } = await loadRoundScoringData(round.id);
+      const auIds = participants.map((p: any) => p.auditionUserId);
+      const people = auIds.length > 0
+        ? await db.select({
+            auditionUserId: auditionUsers.id,
+            userId: users.id,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            email: users.email,
+            phone: users.phone,
+          }).from(auditionUsers).innerJoin(users, eq(users.id, auditionUsers.userId)).where(inArray(auditionUsers.id, auIds))
+        : [];
+      const peopleMap = new Map(people.map(p => [p.auditionUserId, p]));
+      res.json({
+        round,
+        criteria,
+        currentUserId: userId,
+        role,
+        blindJudging: blind,
+        participants: participants.map((p: any) => {
+          const person = peopleMap.get(p.auditionUserId);
+          const row = {
+            ...p,
+            userId: person?.userId ?? null,
+            firstName: person?.firstName ?? '',
+            lastName: person?.lastName ?? '',
+            email: person?.email ?? '',
+            phone: person?.phone ?? null,
+          };
+          // Judges never get contact details or results; with blind judging they only see their own scores
+          if (!isJudge) return row;
+          return {
+            ...row,
+            email: '',
+            phone: null,
+            notes: null,
+            manualOverride: null,
+            finalScore: null,
+            rank: null,
+            evaluations: blind ? row.evaluations.filter((e: any) => e.judgeUserId === userId) : row.evaluations,
+          };
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to fetch round participants:', err);
+      res.status(500).json({ error: 'Failed to fetch round participants' });
+    }
+  });
+
+  // Add audition participants who joined after Round 1 started
+  app.post('/api/rounds/:id/sync-participants', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      if (round.status !== 'open' || round.roundNumber !== 1) return res.status(400).json({ error: 'Only an open first round can be synced' });
+      const added = await addAuditionUsersToRound(round.id, round.auditionId);
+      res.json({ added });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to sync participants' });
+    }
+  });
+
+  // Manually pull an audition participant into an open round
+  app.post('/api/rounds/:id/add-participant', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      if (round.status !== 'open') return res.status(400).json({ error: 'Round is closed' });
+      const ids = (Array.isArray(req.body?.auditionUserIds) ? req.body.auditionUserIds : [req.body?.auditionUserId])
+        .map((v: unknown) => Number(v)).filter((v: number) => Number.isFinite(v));
+      if (ids.length === 0) return res.status(400).json({ error: 'No participant selected' });
+      const added = await addAuditionUsersToRound(round.id, round.auditionId, ids);
+      res.json({ added });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to add participant' });
+    }
+  });
+
+  app.patch('/api/round-participants/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const found = await loadRoundParticipantForUser(parseInt(req.params.id), userId);
+      if (!found) return res.status(404).json({ error: 'Participant not found' });
+      const { manualOverride, notes, scheduledTime } = req.body || {};
+      const updates: Record<string, any> = {};
+      if (manualOverride !== undefined) {
+        if (found.round.status !== 'open') return res.status(400).json({ error: 'Round is closed' });
+        if (manualOverride !== null && manualOverride !== 'advance' && manualOverride !== 'exclude') {
+          return res.status(400).json({ error: 'Invalid override' });
+        }
+        updates.manualOverride = manualOverride;
+      }
+      if (notes !== undefined) updates.notes = typeof notes === 'string' && notes.trim() ? notes : null;
+      if (scheduledTime !== undefined) updates.scheduledTime = typeof scheduledTime === 'string' && scheduledTime.trim() ? scheduledTime : null;
+      if (Object.keys(updates).length === 0) return res.json(found.participant);
+      const [updated] = await db.update(roundParticipants).set(updates).where(eq(roundParticipants.id, found.participant.id)).returning();
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update participant' });
+    }
+  });
+
+  app.delete('/api/round-participants/:id', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const found = await loadRoundParticipantForUser(parseInt(req.params.id), userId);
+      if (!found) return res.status(404).json({ error: 'Participant not found' });
+      if (found.round.status !== 'open') return res.status(400).json({ error: 'Round is closed' });
+      await db.delete(roundParticipants).where(eq(roundParticipants.id, found.participant.id));
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to delete callback' });
+      res.status(500).json({ error: 'Failed to remove participant' });
     }
   });
 
-  app.post('/api/callbacks/:id/notify', async (req, res) => {
+  // Upsert the current user's (judge's) scores for a participant. A null score clears that criterion.
+  app.put('/api/round-participants/:id/evaluation', async (req, res) => {
     const userId = getUserIdFromRequest(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const callback = await db.select().from(callbacks)
-        .where(eq(callbacks.id, parseInt(req.params.id)))
-        .then(rows => rows[0]);
-      if (!callback) {
-        return res.status(404).json({ error: 'Callback not found' });
+      const found = await loadRoundParticipantWithRole(parseInt(req.params.id), userId);
+      if (!found) return res.status(404).json({ error: 'Participant not found' });
+      if (found.round.status !== 'open') return res.status(400).json({ error: 'Round is closed' });
+      const { comment, scores } = req.body || {};
+      const criteria = await db.select().from(roundCriteria).where(eq(roundCriteria.roundId, found.round.id));
+      const criteriaMap = new Map(criteria.map(c => [c.id, c]));
+      const scoreInputs: { criterionId: number; score: number | null }[] = [];
+      if (scores !== undefined) {
+        if (!Array.isArray(scores)) return res.status(400).json({ error: 'Scores must be a list' });
+        for (const s of scores) {
+          const criterion = criteriaMap.get(Number(s?.criterionId));
+          if (!criterion) return res.status(400).json({ error: 'Unknown criterion' });
+          const value = toNumber(s?.score);
+          if (value !== null && (value < 0 || value > criterion.maxScore)) {
+            return res.status(400).json({ error: `Score for "${criterion.title}" must be between 0 and ${criterion.maxScore}` });
+          }
+          scoreInputs.push({ criterionId: criterion.id, score: value === null ? null : Math.round(value * 100) / 100 });
+        }
       }
-      if (!callback.auditionId || !await verifyAuditionOwnership(callback.auditionId, userId)) return res.status(403).json({ error: 'Forbidden' });
+      await db.transaction(async (tx) => {
+        const evalValues: Record<string, any> = { roundParticipantId: found.participant.id, judgeUserId: userId, updatedAt: new Date() };
+        const conflictSet: Record<string, any> = { updatedAt: new Date() };
+        if (comment !== undefined) {
+          evalValues.comment = typeof comment === 'string' && comment.trim() ? comment : null;
+          conflictSet.comment = evalValues.comment;
+        }
+        const [evaluation] = await tx.insert(roundEvaluations).values(evalValues as any)
+          .onConflictDoUpdate({ target: [roundEvaluations.roundParticipantId, roundEvaluations.judgeUserId], set: conflictSet })
+          .returning();
+        for (const s of scoreInputs) {
+          if (s.score === null) {
+            await tx.delete(roundScores).where(and(eq(roundScores.evaluationId, evaluation.id), eq(roundScores.roundCriterionId, s.criterionId)));
+          } else {
+            await tx.insert(roundScores).values({ evaluationId: evaluation.id, roundCriterionId: s.criterionId, score: s.score })
+              .onConflictDoUpdate({ target: [roundScores.evaluationId, roundScores.roundCriterionId], set: { score: s.score } });
+          }
+        }
+        // Drop empty evaluations so they don't count as a judge
+        const remaining = await tx.select({ id: roundScores.id }).from(roundScores).where(eq(roundScores.evaluationId, evaluation.id));
+        if (remaining.length === 0 && !evaluation.comment) {
+          await tx.delete(roundEvaluations).where(eq(roundEvaluations.id, evaluation.id));
+        }
+      });
+      const { participants } = await loadRoundScoringData(found.round.id);
+      const updated = participants.find((p: any) => p.id === found.participant.id);
+      const blind = found.role === 'judge' && (await getAuditionSettings(found.round.auditionId)).blindJudging;
+      const evaluations = (updated?.evaluations ?? []).filter((e: any) => !blind || e.judgeUserId === userId);
+      res.json({ evaluations });
+    } catch (err) {
+      console.error('Failed to save evaluation:', err);
+      res.status(500).json({ error: 'Failed to save scores' });
+    }
+  });
 
-      const callbackUser = callback.userId
-        ? await db.select().from(users).where(eq(users.id, callback.userId)).then(rows => rows[0])
-        : null;
-      if (!callbackUser) {
-        return res.status(404).json({ error: 'User not found' });
+  // Close a round: persist weights/cutoff, snapshot scores & ranks, and open the next round with those advancing.
+  app.post('/api/rounds/:id/close', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      if (round.status !== 'open') return res.status(400).json({ error: 'Round is already closed' });
+      const body = req.body || {};
+      const advanceRule: AdvanceRule = body.advanceRule === 'min_score' ? 'min_score' : body.advanceRule === 'top_n' ? 'top_n' : round.advanceRule;
+      const advanceValue = body.advanceValue !== undefined ? toNumber(body.advanceValue) : round.advanceValue;
+      const isFinal = !!body.final;
+      const weightsInput: Record<string, unknown> = body.weights && typeof body.weights === 'object' ? body.weights : {};
+      const nextRoundInput = body.nextRound || {};
+
+      let nextCriteriaSource: CriterionInput[] | null = null;
+      if (!isFinal && nextRoundInput.templateId) {
+        const resolved = await resolveCriteriaSource(userId, nextRoundInput.templateId, undefined);
+        if (typeof resolved === 'string') return res.status(400).json({ error: resolved });
+        nextCriteriaSource = resolved;
       }
 
-      const audition = callback.auditionId
-        ? await db.select().from(auditions).where(eq(auditions.id, callback.auditionId)).then(rows => rows[0])
-        : null;
+      const result = await db.transaction(async (tx) => {
+        // Persist any weight changes made in the preview
+        for (const [key, raw] of Object.entries(weightsInput)) {
+          const w = toNumber(raw);
+          if (w === null || w < 0) continue;
+          await tx.update(roundCriteria).set({ weight: w })
+            .where(and(eq(roundCriteria.id, Number(key)), eq(roundCriteria.roundId, round.id)));
+        }
+        const { criteria, participants } = await loadRoundScoringData(round.id, tx);
+        const evaluated = evaluateRound(participants, criteria, advanceRule, advanceValue);
+        const advancing = evaluated.filter(r => r.advancing);
+        if (!isFinal && advancing.length === 0) throw Object.assign(new Error('No participants advance'), { status: 400 });
 
-      const scheduledInfo = callback.scheduledTime
-        ? `<p>Your callback is scheduled for: <strong>${callback.scheduledTime}</strong></p>`
+        for (const r of evaluated) {
+          await tx.update(roundParticipants).set({
+            finalScore: r.unscored ? null : r.total,
+            rank: r.rank,
+            status: r.advancing ? 'advanced' : 'eliminated',
+          }).where(eq(roundParticipants.id, r.id));
+        }
+        const [closed] = await tx.update(auditionRounds).set({
+          status: 'closed', closedAt: new Date(), advanceRule, advanceValue, isFinal,
+        }).where(eq(auditionRounds.id, round.id)).returning();
+
+        if (isFinal) return { round: closed, nextRound: null };
+
+        const nextNumber = round.roundNumber + 1;
+        const title = typeof nextRoundInput.title === 'string' && nextRoundInput.title.trim() ? nextRoundInput.title.trim() : `Round ${nextNumber}`;
+        const [next] = await tx.insert(auditionRounds).values({
+          auditionId: round.auditionId,
+          roundNumber: nextNumber,
+          title,
+          advanceRule,
+        }).returning();
+        const criteriaToCopy: CriterionInput[] = nextCriteriaSource
+          ?? criteria.map((c: any) => ({ title: c.title, description: c.description, maxScore: c.maxScore, weight: c.weight }));
+        await insertRoundCriteria(tx, next.id, criteriaToCopy);
+        const participantMap = new Map(participants.map((p: any) => [p.id, p]));
+        await tx.insert(roundParticipants).values(advancing.map(r => ({
+          roundId: next.id,
+          auditionUserId: (participantMap.get(r.id) as any).auditionUserId,
+        })));
+        return { round: closed, nextRound: next };
+      });
+      res.json(result);
+    } catch (err: any) {
+      if (err?.status === 400) return res.status(400).json({ error: err.message });
+      console.error('Failed to close round:', err);
+      res.status(500).json({ error: 'Failed to close round' });
+    }
+  });
+
+  // Reopen the latest closed round. Removes the following round if nobody has been scored in it yet.
+  app.post('/api/rounds/:id/reopen', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const round = await loadRoundForUser(parseInt(req.params.id), userId);
+      if (!round) return res.status(404).json({ error: 'Round not found' });
+      if (round.status !== 'closed') return res.status(400).json({ error: 'Round is not closed' });
+      const later = await db.select().from(auditionRounds)
+        .where(and(eq(auditionRounds.auditionId, round.auditionId), gt(auditionRounds.roundNumber, round.roundNumber)));
+      if (later.length > 1 || later.some(r => r.status !== 'open')) {
+        return res.status(400).json({ error: 'Only the most recent closed round can be reopened' });
+      }
+      if (later.length === 1) {
+        const scored = await db.select({ id: roundEvaluations.id }).from(roundEvaluations)
+          .innerJoin(roundParticipants, eq(roundParticipants.id, roundEvaluations.roundParticipantId))
+          .where(eq(roundParticipants.roundId, later[0].id)).limit(1);
+        if (scored.length > 0) return res.status(400).json({ error: `${later[0].title} already has scores, so this round can't be reopened` });
+      }
+      await db.transaction(async (tx) => {
+        if (later.length === 1) await tx.delete(auditionRounds).where(eq(auditionRounds.id, later[0].id));
+        await tx.update(roundParticipants).set({ status: 'pending', finalScore: null, rank: null })
+          .where(eq(roundParticipants.roundId, round.id));
+        await tx.update(auditionRounds).set({ status: 'open', closedAt: null, isFinal: false })
+          .where(eq(auditionRounds.id, round.id));
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Failed to reopen round:', err);
+      res.status(500).json({ error: 'Failed to reopen round' });
+    }
+  });
+
+  app.post('/api/round-participants/:id/notify', async (req, res) => {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const found = await loadRoundParticipantForUser(parseInt(req.params.id), userId);
+      if (!found) return res.status(404).json({ error: 'Participant not found' });
+      const { participant, round } = found;
+      const person = await db.select({ firstName: users.firstName, email: users.email })
+        .from(auditionUsers).innerJoin(users, eq(users.id, auditionUsers.userId))
+        .where(eq(auditionUsers.id, participant.auditionUserId)).then(r => r[0]);
+      if (!person) return res.status(404).json({ error: 'User not found' });
+      const audition = await db.select().from(auditions).where(eq(auditions.id, round.auditionId)).then(r => r[0]);
+      const auditionTitle = escapeHtml(audition?.title || 'the audition');
+      const roundTitle = escapeHtml(round.title);
+      const intro = round.roundNumber > 1
+        ? `<p>Congratulations! You have advanced to <strong>${roundTitle}</strong> of <strong>${auditionTitle}</strong>.</p>`
+        : `<p>You are part of <strong>${roundTitle}</strong> of <strong>${auditionTitle}</strong>.</p>`;
+      const scheduledInfo = participant.scheduledTime
+        ? `<p>You are scheduled for: <strong>${escapeHtml(participant.scheduledTime)}</strong></p>`
         : '';
+      const notesInfo = participant.notes ? `<p>Notes: ${escapeHtml(participant.notes)}</p>` : '';
 
       if (process.env.BREVO_API_KEY) {
         await client.transactionalEmails.sendTransacEmail({
-          subject: `Callback Notification - ${audition?.title || 'Audition'}`,
+          subject: `${audition?.title || 'Audition'} - ${round.title}`,
           htmlContent: `
-            <h2>Congratulations, ${callbackUser.firstName}!</h2>
-            <p>You have been selected for a callback for <strong>${audition?.title || 'the audition'}</strong>.</p>
+            <h2>Hi ${escapeHtml(person.firstName)},</h2>
+            ${intro}
             ${scheduledInfo}
-            ${callback.notes ? `<p>Notes: ${callback.notes}</p>` : ''}
+            ${notesInfo}
             <p>Please contact us if you have any questions.</p>
           `,
           sender: { name: "AuditionEase", email: "noreply@auditionease.com" },
-          to: [{ email: callbackUser.email }],
+          to: [{ email: person.email }],
         });
         res.json({ success: true, message: 'Notification sent' });
       } else {
-        console.log(`--- CALLBACK NOTIFICATION ---`);
-        console.log(`To: ${callbackUser.email}`);
-        console.log(`Subject: Callback for ${audition?.title}`);
-        console.log(`Scheduled: ${callback.scheduledTime || 'TBD'}`);
-        console.log(`-----------------------------`);
+        console.log(`--- ROUND NOTIFICATION ---`);
+        console.log(`To: ${person.email}`);
+        console.log(`Subject: ${audition?.title} - ${round.title}`);
+        console.log(`Scheduled: ${participant.scheduledTime || 'TBD'}`);
+        console.log(`--------------------------`);
         res.json({ success: true, message: 'Notification logged to console (no Brevo API key configured)' });
       }
     } catch (err: any) {
@@ -1033,12 +1924,26 @@ async function startServer() {
       const auIds = auRows.map(au => au.id);
       const userIds = [...new Set(auRows.map(au => au.userId))];
 
-      const [usersData, cfValues, slotsData, attrs] = await Promise.all([
+      const [usersData, cfValues, roundsData, attrs] = await Promise.all([
         db.select().from(users).where(inArray(users.id, userIds)),
         db.select().from(auditionUserCustomFields).where(inArray(auditionUserCustomFields.auditionUserId, auIds)),
-        db.select().from(auditionSlots).where(inArray(auditionSlots.auditionId, auditionIds)),
+        db.select().from(auditionRounds).where(inArray(auditionRounds.auditionId, auditionIds)),
         db.select().from(customAttributes).where(eq(customAttributes.userId, userId)),
       ]);
+
+      // Latest round each participant reached, with their score in it
+      const latestRoundByAu = new Map<number, { round: typeof roundsData[number]; participant: any; score: number | null }>();
+      for (const round of roundsData) {
+        const { criteria, participants } = await loadRoundScoringData(round.id);
+        const live = round.status === "open" ? evaluateRound(participants, criteria, round.advanceRule, round.advanceValue) : [];
+        for (const p of participants) {
+          const current = latestRoundByAu.get(p.auditionUserId);
+          if (current && current.round.roundNumber >= round.roundNumber) continue;
+          const liveRow = live.find(r => r.id === p.id);
+          const score = round.status === "open" ? (liveRow && !liveRow.unscored ? liveRow.total : null) : p.finalScore;
+          latestRoundByAu.set(p.auditionUserId, { round, participant: p, score });
+        }
+      }
 
       const userMap = new Map(usersData.map(u => [u.id, u]));
       const attrMap = new Map(attrs.map(a => [a.id, a]));
@@ -1047,7 +1952,13 @@ async function startServer() {
         const userData = userMap.get(au.userId);
         const audition = auditionMap.get(au.auditionId);
         const cfv = cfValues.filter(cf => cf.auditionUserId === au.id);
-        const slot = slotsData.find(s => s.auditionId === au.auditionId && s.userId === au.userId && s.status === 'completed');
+        const latest = latestRoundByAu.get(au.id);
+        let roundStatus = "";
+        if (latest) {
+          if (latest.round.status === "open") roundStatus = "In progress";
+          else if (latest.participant.status === "advanced") roundStatus = latest.round.isFinal ? "Selected" : "Advanced";
+          else roundStatus = "Eliminated";
+        }
 
         const row: Record<string, any> = {
           firstName: userData?.firstName || '',
@@ -1056,9 +1967,10 @@ async function startServer() {
           phone: userData?.phone || '',
           auditionTitle: audition?.title || '',
           auditionDate: audition?.date || '',
-          score: slot?.score ?? '',
-          feedback: slot?.feedback || '',
-          passedToCallback: slot ? (slot.passedToCallback ? 'Yes' : 'No') : '',
+          latestRound: latest?.round.title || '',
+          score: latest?.score ?? '',
+          feedback: latest ? latest.participant.evaluations.map((e: any) => e.comment).filter(Boolean).join(' | ') : '',
+          roundStatus,
         };
 
         for (const cf of cfv) {
@@ -1362,6 +2274,14 @@ async function startServer() {
           .values({ auditionId: audition.id, userId: user.id })
           .returning();
         auRecord = created[0];
+
+        // Late signups join Round 1 automatically while it's still open
+        const firstRound = await db.select().from(auditionRounds)
+          .where(and(eq(auditionRounds.auditionId, audition.id), eq(auditionRounds.roundNumber, 1)))
+          .then(rows => rows[0]);
+        if (firstRound?.status === 'open') {
+          await addAuditionUsersToRound(firstRound.id, audition.id, [auRecord.id]);
+        }
       }
 
       // Upsert custom field values

@@ -1,4 +1,6 @@
-import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex, numeric, check, jsonb } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import type { AuditionSettings } from '../lib/auditionSettings';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -93,6 +95,8 @@ export const auditions = pgTable('auditions', {
   inviteCode: text('invite_code').notNull().unique(),
   attributeSetId: integer('attribute_set_id').references(() => attributeSets.id),
   divisionId: integer('division_id').references(() => divisions.id),
+  // See src/lib/auditionSettings.ts; always read through normalizeAuditionSettings
+  settings: jsonb('settings').$type<Partial<AuditionSettings>>().default({}).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('auditions_user_id_idx').on(table.userId),
@@ -107,19 +111,112 @@ export const auditionSlots = pgTable('audition_slots', {
   startTime: text('start_time').notNull(),
   endTime: text('end_time').notNull(),
   status: text('status').$type<'available' | 'booked' | 'completed' | 'no-show' | 'closed'>().default('available'),
-  score: integer('score'),
-  feedback: text('feedback'),
-  passedToCallback: boolean('passed_to_callback').default(false),
 });
 
-export const callbacks = pgTable('callbacks', {
+// Emails allowed to judge auditions. Scoped to either an individual owner's auditions (ownerUserId)
+// or a division's auditions (divisionId). Emails are stored lowercased.
+export const judges = pgTable('judges', {
   id: serial('id').primaryKey(),
-  auditionId: integer('audition_id').references(() => auditions.id),
+  ownerUserId: integer('owner_user_id').references(() => users.id),
+  divisionId: integer('division_id').references(() => divisions.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  addedByUserId: integer('added_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  uniqueIndex('judges_owner_email_idx').on(table.ownerUserId, table.email),
+  uniqueIndex('judges_division_email_idx').on(table.divisionId, table.email),
+  index('judges_email_idx').on(table.email),
+  check('judges_one_scope', sql`(${table.ownerUserId} IS NULL) <> (${table.divisionId} IS NULL)`),
+]);
+
+export const scoringTemplates = pgTable('scoring_templates', {
+  id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id),
-  scheduledTime: text('scheduled_time'),
+  divisionId: integer('division_id').references(() => divisions.id),
+  name: text('name').notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('scoring_templates_user_id_idx').on(table.userId),
+  index('scoring_templates_division_id_idx').on(table.divisionId),
+]);
+
+export const scoringTemplateCriteria = pgTable('scoring_template_criteria', {
+  id: serial('id').primaryKey(),
+  templateId: integer('template_id').references(() => scoringTemplates.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  maxScore: numeric('max_score', { precision: 10, scale: 2, mode: 'number' }).default(10).notNull(),
+  weight: numeric('weight', { precision: 10, scale: 2, mode: 'number' }).default(1).notNull(),
+  order: integer('order').default(0).notNull(),
+}, (table) => [
+  index('scoring_template_criteria_template_id_idx').on(table.templateId),
+]);
+
+export const auditionRounds = pgTable('audition_rounds', {
+  id: serial('id').primaryKey(),
+  auditionId: integer('audition_id').references(() => auditions.id, { onDelete: 'cascade' }).notNull(),
+  roundNumber: integer('round_number').notNull(),
+  title: text('title').notNull(),
+  status: text('status').$type<'open' | 'closed'>().default('open').notNull(),
+  advanceRule: text('advance_rule').$type<'top_n' | 'min_score'>().default('top_n').notNull(),
+  advanceValue: numeric('advance_value', { precision: 10, scale: 2, mode: 'number' }),
+  isFinal: boolean('is_final').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  closedAt: timestamp('closed_at'),
+}, (table) => [
+  uniqueIndex('audition_rounds_unique_idx').on(table.auditionId, table.roundNumber),
+]);
+
+export const roundCriteria = pgTable('round_criteria', {
+  id: serial('id').primaryKey(),
+  roundId: integer('round_id').references(() => auditionRounds.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  maxScore: numeric('max_score', { precision: 10, scale: 2, mode: 'number' }).default(10).notNull(),
+  weight: numeric('weight', { precision: 10, scale: 2, mode: 'number' }).default(1).notNull(),
+  order: integer('order').default(0).notNull(),
+}, (table) => [
+  index('round_criteria_round_id_idx').on(table.roundId),
+]);
+
+export const roundParticipants = pgTable('round_participants', {
+  id: serial('id').primaryKey(),
+  roundId: integer('round_id').references(() => auditionRounds.id, { onDelete: 'cascade' }).notNull(),
+  auditionUserId: integer('audition_user_id').references(() => auditionUsers.id, { onDelete: 'cascade' }).notNull(),
+  status: text('status').$type<'pending' | 'advanced' | 'eliminated'>().default('pending').notNull(),
+  manualOverride: text('manual_override').$type<'advance' | 'exclude'>(),
   notes: text('notes'),
-  finalDecision: text('final_decision').$type<'accepted' | 'rejected' | 'pending'>().default('pending'),
-});
+  scheduledTime: text('scheduled_time'),
+  finalScore: numeric('final_score', { precision: 12, scale: 4, mode: 'number' }),
+  rank: integer('rank'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  uniqueIndex('round_participants_unique_idx').on(table.roundId, table.auditionUserId),
+  index('round_participants_audition_user_id_idx').on(table.auditionUserId),
+]);
+
+export const roundEvaluations = pgTable('round_evaluations', {
+  id: serial('id').primaryKey(),
+  roundParticipantId: integer('round_participant_id').references(() => roundParticipants.id, { onDelete: 'cascade' }).notNull(),
+  judgeUserId: integer('judge_user_id').references(() => users.id).notNull(),
+  comment: text('comment'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  uniqueIndex('round_evaluations_unique_idx').on(table.roundParticipantId, table.judgeUserId),
+  index('round_evaluations_judge_user_id_idx').on(table.judgeUserId),
+]);
+
+export const roundScores = pgTable('round_scores', {
+  id: serial('id').primaryKey(),
+  evaluationId: integer('evaluation_id').references(() => roundEvaluations.id, { onDelete: 'cascade' }).notNull(),
+  roundCriterionId: integer('round_criterion_id').references(() => roundCriteria.id, { onDelete: 'cascade' }).notNull(),
+  score: numeric('score', { precision: 10, scale: 2, mode: 'number' }).notNull(),
+}, (table) => [
+  uniqueIndex('round_scores_unique_idx').on(table.evaluationId, table.roundCriterionId),
+  index('round_scores_criterion_id_idx').on(table.roundCriterionId),
+]);
 
 export const loginTokens = pgTable('login_tokens', {
   id: serial('id').primaryKey(),
