@@ -79,13 +79,13 @@ export const OrgInvitePage: React.FC<OrgInvitePageProps> = ({ token }) => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 max-w-md w-full text-center"
+          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-6 sm:p-8 max-w-md w-full text-center"
         >
           <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Building2 size={32} className="text-red-500" />
           </div>
           <h2 className="text-xl font-extrabold mb-2">Invalid Invite</h2>
-          <p className="text-[#6B7280]">{error}</p>
+          <p className="text-[#6B7280] break-words">{error}</p>
         </motion.div>
       </div>
     );
@@ -97,7 +97,7 @@ export const OrgInvitePage: React.FC<OrgInvitePageProps> = ({ token }) => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 max-w-md w-full text-center"
+          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-6 sm:p-8 max-w-md w-full text-center"
         >
           <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <CheckCircle size={32} className="text-green-500" />
@@ -121,7 +121,7 @@ export const OrgInvitePage: React.FC<OrgInvitePageProps> = ({ token }) => {
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 max-w-md w-full text-center"
+          className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-6 sm:p-8 max-w-md w-full text-center"
         >
           <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <CheckCircle size={32} className="text-green-500" />
@@ -138,7 +138,7 @@ export const OrgInvitePage: React.FC<OrgInvitePageProps> = ({ token }) => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 max-w-md w-full"
+        className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-6 sm:p-8 max-w-md w-full"
       >
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-[#EEF2FF] rounded-2xl flex items-center justify-center mx-auto mb-6">

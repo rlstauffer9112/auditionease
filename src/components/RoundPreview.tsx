@@ -148,7 +148,7 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
               : <><span className="font-bold">{advanced}</span> of {participants.length} advanced.</>}
           </p>
           {canReopen && (
-            <button onClick={reopen} disabled={busy} className="flex items-center gap-1.5 text-sm font-bold text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-50">
+            <button onClick={reopen} disabled={busy} className="flex items-center gap-1.5 py-1.5 sm:py-0 text-sm font-bold text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-50">
               <RotateCcw size={14} /> Reopen round
             </button>
           )}
@@ -156,18 +156,20 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
         {error && <p className="text-sm text-[#EF4444]">{error}</p>}
         <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm divide-y divide-[#F3F4F6]">
           {results.map(p => (
-            <div key={p.id} className="flex items-center gap-4 px-5 py-3">
-              <span className="w-8 text-sm font-bold text-[#9CA3AF]">{p.rank ?? '—'}</span>
+            <div key={p.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3">
+              <span className="w-6 sm:w-8 shrink-0 text-sm font-bold text-[#9CA3AF]">{p.rank ?? '—'}</span>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-sm truncate">{p.firstName} {p.lastName}</p>
                 <p className="text-xs text-[#6B7280] truncate">{p.email}</p>
               </div>
-              <span className="text-sm font-bold w-16 text-right">{formatScore(p.finalScore)}</span>
+              <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-4 shrink-0">
+              <span className="text-sm font-bold sm:w-16 text-right">{formatScore(p.finalScore)}</span>
               {p.status === 'advanced' ? (
                 <span className="text-xs font-bold text-[#10B981] bg-[#ECFDF5] px-2 py-1 rounded-md w-24 text-center">{round.isFinal ? 'SELECTED' : 'ADVANCED'}</span>
               ) : (
                 <span className="text-xs font-bold text-[#9CA3AF] bg-[#F3F4F6] px-2 py-1 rounded-md w-24 text-center">NOT ADVANCED</span>
               )}
+              </div>
             </div>
           ))}
         </div>
@@ -178,14 +180,14 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
   // --- Open round: live preview ---
   return (
     <div className="space-y-4">
-      <div className="bg-white p-5 rounded-3xl border border-[#E5E7EB] shadow-sm flex flex-wrap items-center gap-4">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-[#E5E7EB] shadow-sm flex flex-wrap items-center gap-3 sm:gap-4">
         <span className="text-sm font-bold text-[#374151]">Advance</span>
         <div className="flex bg-[#F3F4F6] p-1 rounded-xl">
           {([['top_n', 'Top'], ['min_score', 'Score at least']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => { setRule(key); saveRule(key, value); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${rule === key ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
+              className={`px-3 py-2 sm:py-1.5 rounded-lg text-sm font-bold transition-all ${rule === key ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
             >
               {label}
             </button>
@@ -202,29 +204,29 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
           className="w-28 border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none"
         />
         <span className="text-sm text-[#6B7280]">{rule === 'top_n' ? 'participants' : 'points'}</span>
-        <span className="ml-auto text-sm text-[#6B7280]"><span className="font-bold text-[#111827]">{advancingCount}</span> of {rows.length} advancing</span>
+        <span className="w-full sm:w-auto sm:ml-auto text-sm text-[#6B7280]"><span className="font-bold text-[#111827]">{advancingCount}</span> of {rows.length} advancing</span>
       </div>
 
       {incompleteCount > 0 && (
         <div className="flex items-center gap-2 text-sm text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-4 py-2.5 rounded-xl">
-          <AlertTriangle size={16} />
+          <AlertTriangle size={16} className="shrink-0" />
           {incompleteCount} participant{incompleteCount === 1 ? " hasn't" : "s haven't"} been fully scored. Missing scores count as 0.
         </div>
       )}
 
       {multiCriteria && (
         <div className="bg-white rounded-2xl border border-[#E5E7EB]">
-          <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between px-5 py-3 text-sm font-bold text-[#374151]">
+          <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between gap-2 px-4 sm:px-5 py-3 text-sm font-bold text-[#374151] text-left">
             <span>Advanced: adjust weights{weightsChanged && <span className="ml-2 text-xs text-[#D97706]">(unsaved changes)</span>}</span>
             {showAdvanced ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
           {showAdvanced && (
-            <div className="px-5 pb-4 space-y-3">
+            <div className="px-4 sm:px-5 pb-4 space-y-3">
               <p className="text-xs text-[#6B7280]">Try different weights and watch who moves above or below the cutoff. Nothing is saved until you click Save weights or close the round.</p>
               <div className="flex flex-wrap gap-3">
                 {criteria.map(c => (
-                  <label key={c.id} className="flex items-center gap-2 bg-[#F9FAFB] rounded-xl px-3 py-2 text-sm">
-                    <span className="font-medium">{c.title}</span>
+                  <label key={c.id} className="flex items-center gap-2 bg-[#F9FAFB] rounded-xl px-3 py-2 text-sm max-w-full">
+                    <span className="font-medium min-w-0 truncate">{c.title}</span>
                     <span className="text-[#9CA3AF]">×</span>
                     <input
                       type="number"
@@ -232,7 +234,7 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
                       step="any"
                       value={weights[c.id] ?? ''}
                       onChange={e => setWeights({ ...weights, [c.id]: e.target.value })}
-                      className="w-20 border border-[#E5E7EB] rounded-lg px-2 py-1 text-sm bg-white"
+                      className="w-20 shrink-0 border border-[#E5E7EB] rounded-lg px-2 py-1 text-sm bg-white"
                     />
                   </label>
                 ))}
@@ -252,12 +254,12 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[10px] font-bold text-[#6B7280] uppercase tracking-wider border-b border-[#F3F4F6]">
-              <th className="px-5 py-3 w-12">#</th>
+              <th className="pl-4 pr-2 sm:px-5 py-3 w-10 sm:w-12">#</th>
               <th className="px-2 py-3">Participant</th>
               {multiCriteria && showAdvanced && criteria.map(c => <th key={c.id} className="px-2 py-3 text-right">{c.title}</th>)}
-              {multiJudge && <th className="px-2 py-3 text-right">Judges</th>}
+              {multiJudge && <th className="hidden sm:table-cell px-2 py-3 text-right">Judges</th>}
               <th className="px-2 py-3 text-right">Score</th>
-              <th className="px-5 py-3 text-center w-24">Advance</th>
+              <th className="pl-2 pr-4 sm:px-5 py-3 text-center w-16 sm:w-24">Advance</th>
             </tr>
           </thead>
           <tbody>
@@ -268,9 +270,9 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
               return (
                 <React.Fragment key={r.id}>
                   <tr className={`border-b border-[#F3F4F6] ${r.advancing ? 'bg-[#F0FDF4]' : ''}`}>
-                    <td className="px-5 py-2.5 font-bold text-[#9CA3AF]">{r.unscored ? '—' : r.rank}</td>
+                    <td className="pl-4 pr-2 sm:px-5 py-2.5 font-bold text-[#9CA3AF]">{r.unscored ? '—' : r.rank}</td>
                     <td className="px-2 py-2.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="font-bold">{p.firstName} {p.lastName}</span>
                         {r.incomplete && !r.unscored && <span title="Not fully scored"><AlertTriangle size={12} className="text-[#D97706]" /></span>}
                         {r.unscored && <span className="text-xs text-[#9CA3AF]">not scored</span>}
@@ -281,15 +283,15 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
                     {multiCriteria && showAdvanced && criteria.map(c => (
                       <td key={c.id} className="px-2 py-2.5 text-right text-[#6B7280]">{formatScore(r.averages[c.id] === null ? null : Math.round((r.averages[c.id] as number) * 100) / 100)}</td>
                     ))}
-                    {multiJudge && <td className="px-2 py-2.5 text-right text-[#6B7280]">{r.judgeCount}</td>}
+                    {multiJudge && <td className="hidden sm:table-cell px-2 py-2.5 text-right text-[#6B7280]">{r.judgeCount}</td>}
                     <td className="px-2 py-2.5 text-right font-bold">{r.unscored ? '—' : formatScore(Math.round(r.total * 100) / 100)}</td>
-                    <td className="px-5 py-2.5 text-center">
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <td className="pl-2 pr-4 sm:px-5 py-1 sm:py-2.5 text-center">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer p-2 sm:p-0">
                         <input
                           type="checkbox"
                           checked={r.advancing}
                           onChange={e => toggleAdvance(r.id, e.target.checked, r.autoAdvance)}
-                          className="w-4 h-4 accent-[#4F46E5]"
+                          className="w-5 h-5 sm:w-4 sm:h-4 accent-[#4F46E5]"
                         />
                         {r.manualOverride && <span className="text-[10px] font-bold text-[#4F46E5]" title="Set manually">M</span>}
                       </label>
@@ -318,17 +320,17 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
 
       {error && <p className="text-sm text-[#EF4444]">{error}</p>}
 
-      <div className="bg-white p-5 rounded-3xl border border-[#E5E7EB] shadow-sm space-y-4">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-[#E5E7EB] shadow-sm space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => closeRound(false)}
             disabled={busy || advancingCount === 0}
-            className="flex items-center gap-2 bg-[#4F46E5] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#4338CA] disabled:opacity-50"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#4F46E5] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#4338CA] disabled:opacity-50"
           >
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+            {busy ? <Loader2 size={16} className="animate-spin shrink-0" /> : <ArrowRight size={16} className="shrink-0" />}
             Advance {advancingCount} to {nextTitle || `Round ${round.roundNumber + 1}`}
           </button>
-          <button onClick={() => setShowOptions(!showOptions)} className="text-sm font-bold text-[#6B7280] hover:text-[#4F46E5]">
+          <button onClick={() => setShowOptions(!showOptions)} className="py-1.5 sm:py-0 text-sm font-bold text-[#6B7280] hover:text-[#4F46E5]">
             {showOptions ? 'Hide options' : 'Options'}
           </button>
         </div>
@@ -349,7 +351,7 @@ export function RoundPreview({ detail, authFetch, templates, canReopen, onPartic
               <button
                 onClick={() => closeRound(true)}
                 disabled={busy}
-                className="flex items-center gap-2 px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
+                className="w-full sm:w-auto flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 sm:py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
               >
                 <Flag size={14} /> Finish as final round ({advancingCount} selected)
               </button>

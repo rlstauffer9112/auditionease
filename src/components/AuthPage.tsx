@@ -57,7 +57,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl border border-[#E5E7EB]"
+          className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-[#E5E7EB]"
         >
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -65,7 +65,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
             </div>
             <h2 className="text-2xl font-bold mb-2">Enter your code</h2>
             <p className="text-gray-500">
-              We sent a 6-digit code to <strong>{email}</strong>
+              We sent a 6-digit code to <strong className="break-all">{email}</strong>
             </p>
           </div>
 
@@ -122,14 +122,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
                 }
               }}
               disabled={loading}
-              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors px-2 py-2"
             >
               {loading ? 'SENDING...' : 'RESEND CODE'}
             </button>
             <br />
             <button
               onClick={() => { setCodeSent(false); setCode(''); setError(null); }}
-              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+              className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors px-2 py-2"
             >
               USE A DIFFERENT EMAIL
             </button>
@@ -140,11 +140,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4 relative">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F9FAFB] p-4 relative">
       {onBack && (
         <button
           onClick={onBack}
-          className="absolute top-8 left-8 flex items-center gap-2 text-[#6B7280] hover:text-[#4F46E5] font-bold transition-colors"
+          className="self-start mb-4 py-2 sm:mb-0 sm:py-0 sm:absolute sm:top-8 sm:left-8 flex items-center gap-2 text-[#6B7280] hover:text-[#4F46E5] font-bold transition-colors"
         >
           <ArrowLeft size={20} />
           Back to Home
@@ -154,9 +154,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full bg-white rounded-3xl p-10 shadow-xl border border-[#E5E7EB]"
+        className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-10 shadow-xl border border-[#E5E7EB]"
       >
-        <div className="text-center mb-10">
+        <div className="text-center mb-8 sm:mb-10">
           <div className="w-12 h-12 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-indigo-100">
             <Mail size={24} />
           </div>
@@ -174,7 +174,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {isRegistering && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">First Name</label>
                 <div className="relative">
@@ -237,13 +237,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
           </button>
         </form>
 
-        <div className="mt-10 pt-8 border-t border-gray-100 text-center">
+        <div className="mt-8 sm:mt-10 pt-6 sm:pt-8 border-t border-gray-100 text-center">
           <button
             onClick={() => {
               setIsRegistering(!isRegistering);
               setError(null);
             }}
-            className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+            className="text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors px-2 py-2"
           >
             {isRegistering ? 'ALREADY HAVE AN ACCOUNT? SIGN IN' : "DON'T HAVE AN ACCOUNT? REGISTER"}
           </button>

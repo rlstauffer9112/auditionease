@@ -163,10 +163,10 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
   };
 
   return (
-    <div className="mt-4 ml-11">
+    <div className="mt-4 sm:ml-11">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1"
+        className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1 py-1 sm:py-0"
       >
         <ClipboardList size={12} />
         Audition Attributes
@@ -174,11 +174,11 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
       </button>
 
       {expanded && (
-        <div className="mt-3 border border-[#E5E7EB] rounded-2xl p-5 bg-[#FAFAFA]">
-          <div className="flex gap-1 mb-4 bg-[#F3F4F6] p-1 rounded-xl w-fit">
+        <div className="mt-3 border border-[#E5E7EB] rounded-2xl p-3 sm:p-5 bg-[#FAFAFA]">
+          <div className="flex gap-1 mb-4 bg-[#F3F4F6] p-1 rounded-xl w-fit max-w-full overflow-x-auto">
             <button
               onClick={() => setActiveTab('attributes')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'
               }`}
             >
@@ -187,7 +187,7 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
             </button>
             <button
               onClick={() => setActiveTab('sets')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'sets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'
               }`}
             >
@@ -202,7 +202,7 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
             </div>
           ) : activeTab === 'attributes' ? (
             <div>
-              <form onSubmit={handleAddAttribute} className="mb-4 p-4 bg-white rounded-xl border border-[#E5E7EB]">
+              <form onSubmit={handleAddAttribute} className="mb-4 p-3 sm:p-4 bg-white rounded-xl border border-[#E5E7EB]">
                 <h4 className="text-sm font-bold mb-3">Add Attribute</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -269,26 +269,26 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
               ) : (
                 <div className="space-y-2">
                   {attributes.map((attr, idx) => (
-                    <div key={attr.id} className="bg-white p-3 rounded-xl border border-[#E5E7EB] flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="flex flex-col">
+                    <div key={attr.id} className="bg-white p-3 rounded-xl border border-[#E5E7EB] flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex flex-col flex-shrink-0">
                           <button
                             onClick={() => handleReorderAttribute(attr.id, 'up')}
                             disabled={idx === 0}
-                            className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 transition-colors"
+                            className="p-1.5 sm:p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 transition-colors"
                           >
                             <ArrowUp size={13} />
                           </button>
                           <button
                             onClick={() => handleReorderAttribute(attr.id, 'down')}
                             disabled={idx === attributes.length - 1}
-                            className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 transition-colors"
+                            className="p-1.5 sm:p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 transition-colors"
                           >
                             <ArrowDown size={13} />
                           </button>
                         </div>
-                        <div>
-                          <p className="font-bold text-sm">{attr.label}</p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm break-words">{attr.label}</p>
                           <p className="text-xs text-[#6B7280] uppercase tracking-wider">
                             {attr.type === 'select' ? 'Dropdown (Select One)' : attr.type === 'multiselect' ? 'Dropdown (Select Multiple)' : attr.type}
                             {attr.required ? ' • Required' : ''}
@@ -297,7 +297,7 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
                       </div>
                       <button
                         onClick={() => handleDeleteAttribute(attr.id)}
-                        className="p-1.5 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                        className="p-2 sm:p-1.5 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors flex-shrink-0"
                       >
                         <XCircle size={16} />
                       </button>
@@ -308,7 +308,7 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
             </div>
           ) : (
             <div>
-              <form onSubmit={editingSet ? handleUpdateSet : handleAddSet} className="mb-4 p-4 bg-white rounded-xl border border-[#E5E7EB]">
+              <form onSubmit={editingSet ? handleUpdateSet : handleAddSet} className="mb-4 p-3 sm:p-4 bg-white rounded-xl border border-[#E5E7EB]">
                 <h4 className="text-sm font-bold mb-3">{editingSet ? 'Edit Attribute Set' : 'Create Attribute Set'}</h4>
                 <div>
                   <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Set Name</label>
@@ -334,12 +334,12 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
                             const allIds = attributes.map(a => a.id);
                             editingSet ? setEditSetAttrIds(allIds) : setNewSetAttrIds(allIds);
                           }}
-                          className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                          className="text-[10px] text-[#4F46E5] hover:underline font-medium py-1 sm:py-0"
                         >Select All</button>
                         <button
                           type="button"
                           onClick={() => editingSet ? setEditSetAttrIds([]) : setNewSetAttrIds([])}
-                          className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                          className="text-[10px] text-[#4F46E5] hover:underline font-medium py-1 sm:py-0"
                         >Clear All</button>
                       </div>
                     </div>
@@ -360,8 +360,8 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
                               }}
                               className="rounded"
                             />
-                            <span className="text-xs font-medium">{attr.label}</span>
-                            <span className="text-xs text-[#9CA3AF] ml-auto">{attr.type === 'select' ? 'Dropdown' : attr.type === 'multiselect' ? 'Multi-select' : attr.type}</span>
+                            <span className="text-xs font-medium min-w-0 break-words">{attr.label}</span>
+                            <span className="text-xs text-[#9CA3AF] ml-auto flex-shrink-0">{attr.type === 'select' ? 'Dropdown' : attr.type === 'multiselect' ? 'Multi-select' : attr.type}</span>
                           </label>
                         );
                       })}
@@ -394,25 +394,25 @@ export function DivisionAttributesEditor({ divisionId, authFetch }: Props) {
                 <div className="space-y-2">
                   {sets.map(set => (
                     <div key={set.id} className="bg-white p-4 rounded-xl border border-[#E5E7EB]">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <p className="font-bold text-sm">{set.name}</p>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm break-words">{set.name}</p>
                           <p className="text-xs text-[#6B7280]">{set.attributeIds.length} attribute{set.attributeIds.length !== 1 ? 's' : ''}</p>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => {
                               setEditingSet(set);
                               setEditSetName(set.name);
                               setEditSetAttrIds([...set.attributeIds]);
                             }}
-                            className="p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg transition-colors"
+                            className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg transition-colors"
                           >
                             <Pencil size={13} />
                           </button>
                           <button
                             onClick={() => handleDeleteSet(set.id)}
-                            className="p-1.5 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                            className="p-2 sm:p-1.5 text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
                           >
                             <XCircle size={13} />
                           </button>

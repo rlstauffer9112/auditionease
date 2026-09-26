@@ -40,7 +40,7 @@ export const VerifyPage: React.FC = () => {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md w-full bg-white rounded-3xl p-8 shadow-sm text-center"
+        className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-sm text-center"
       >
         {status === 'loading' && (
           <div className="space-y-6">
@@ -68,7 +68,7 @@ export const VerifyPage: React.FC = () => {
               <XCircle className="w-8 h-8 text-red-600" />
             </div>
             <h2 className="text-2xl font-serif font-medium text-red-600">Verification Failed</h2>
-            <p className="text-gray-600 mb-6">{error}</p>
+            <p className="text-gray-600 mb-6 break-words">{error}</p>
             <button 
               onClick={() => window.location.href = '/auth'}
               className="w-full bg-[#5A5A40] text-white rounded-xl py-3 font-medium hover:bg-[#4A4A30] transition-colors"

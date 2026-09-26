@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* iOS Safari zooms the page when focusing a form control under 16px. Kept
+   unlayered so it wins over text-sm/text-xs utilities on phones. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Touch devices have no hover, so hover-revealed controls must stay visible */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 1 !important;
+  }
+}
+
 /* Printed reports: tight margins, white page, table headers repeated on every page */
 @media print {
   @page {

@@ -128,8 +128,8 @@ export function ScoringTemplatesEditor({ authFetch, divisionId = null, copyTarge
 
   const content = (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-      <form onSubmit={handleSave} className="lg:col-span-3 bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm space-y-4 h-fit">
-        <div className="flex items-center justify-between">
+      <form onSubmit={handleSave} className="lg:col-span-3 bg-white p-5 sm:p-6 rounded-3xl border border-[#E5E7EB] shadow-sm space-y-4 h-fit">
+        <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold">{editingId ? 'Edit Template' : 'New Scoring Template'}</h3>
           {editingId && (
             <button type="button" onClick={resetForm} className="text-sm text-[#6B7280] hover:text-[#111827]">Cancel</button>
@@ -156,7 +156,7 @@ export function ScoringTemplatesEditor({ authFetch, divisionId = null, copyTarge
         <button
           type="submit"
           disabled={saving}
-          className="bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50 flex items-center gap-2"
+          className="w-full sm:w-auto justify-center bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50 flex items-center gap-2"
         >
           {saving && <Loader2 size={14} className="animate-spin" />}
           {editingId ? 'Save Changes' : 'Create Template'}
@@ -178,9 +178,9 @@ export function ScoringTemplatesEditor({ authFetch, divisionId = null, copyTarge
                 {t.description && <p className="text-xs text-[#6B7280] truncate">{t.description}</p>}
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
-                <button onClick={() => startEdit(t)} className="p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Edit"><Pencil size={13} /></button>
-                <button onClick={() => handleDuplicate(t)} className="p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Duplicate"><Copy size={13} /></button>
-                <button onClick={() => handleDelete(t)} className="p-1.5 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg" title="Delete"><Trash2 size={13} /></button>
+                <button onClick={() => startEdit(t)} className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Edit"><Pencil size={13} /></button>
+                <button onClick={() => handleDuplicate(t)} className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Duplicate"><Copy size={13} /></button>
+                <button onClick={() => handleDelete(t)} className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg" title="Delete"><Trash2 size={13} /></button>
               </div>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -194,7 +194,7 @@ export function ScoringTemplatesEditor({ authFetch, divisionId = null, copyTarge
               <select
                 value=""
                 onChange={e => { const id = Number(e.target.value); if (id) handleDuplicate(t, id); }}
-                className="mt-3 w-full text-xs border border-[#E5E7EB] rounded-lg px-2 py-1.5 bg-white text-[#6B7280]"
+                className="mt-3 w-full text-xs border border-[#E5E7EB] rounded-lg px-2 py-2 sm:py-1.5 bg-white text-[#6B7280]"
               >
                 <option value="">Copy to another division…</option>
                 {otherTargets.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
@@ -209,16 +209,16 @@ export function ScoringTemplatesEditor({ authFetch, divisionId = null, copyTarge
   if (!collapsible) return content;
 
   return (
-    <div className="mt-4 ml-11">
+    <div className="mt-4 sm:ml-11">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1"
+        className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1 py-1.5 sm:py-0"
       >
         <Scale size={12} />
         Scoring Templates
         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
-      {expanded && <div className="mt-3 border border-[#E5E7EB] rounded-2xl p-5 bg-[#FAFAFA]">{content}</div>}
+      {expanded && <div className="mt-3 border border-[#E5E7EB] rounded-2xl p-3 sm:p-5 bg-[#FAFAFA]">{content}</div>}
     </div>
   );
 }

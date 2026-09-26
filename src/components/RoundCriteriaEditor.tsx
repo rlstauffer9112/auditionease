@@ -72,9 +72,9 @@ export function RoundCriteriaEditor({ detail, authFetch, templates, onClose, onS
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl p-6 sm:p-8 w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
-          <div>
+      <div className="bg-white rounded-3xl p-5 sm:p-8 w-full max-w-3xl max-h-[90dvh] overflow-y-auto overscroll-contain shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-5 sm:mb-6">
+          <div className="min-w-0">
             <h3 className="text-xl font-bold">Scoring criteria</h3>
             <p className="text-sm text-[#6B7280]">For {round.title} only. Changes don't affect other rounds or templates.</p>
           </div>
@@ -82,7 +82,7 @@ export function RoundCriteriaEditor({ detail, authFetch, templates, onClose, onS
             <select
               value=""
               onChange={e => applyTemplate(Number(e.target.value))}
-              className="border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm bg-white"
+              className="w-full sm:w-auto border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm bg-white"
             >
               <option value="">Apply a template…</option>
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -98,7 +98,7 @@ export function RoundCriteriaEditor({ detail, authFetch, templates, onClose, onS
             value={templateName}
             onChange={e => setTemplateName(e.target.value)}
             placeholder="Save current criteria as template…"
-            className="flex-1 min-w-[200px] border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm"
+            className="flex-1 min-w-0 basis-full sm:basis-0 sm:min-w-[200px] border border-[#E5E7EB] rounded-xl px-3 py-2 text-sm"
           />
           <button
             onClick={saveAsTemplate}
@@ -111,11 +111,11 @@ export function RoundCriteriaEditor({ detail, authFetch, templates, onClose, onS
         </div>
 
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-5 py-2.5 text-sm font-bold text-[#6B7280]">Cancel</button>
+          <button onClick={onClose} className="flex-1 sm:flex-none px-5 py-2.5 text-sm font-bold text-[#6B7280]">Cancel</button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#4338CA] disabled:opacity-50"
           >
             {saving && <Loader2 size={14} className="animate-spin" />}
             Save criteria

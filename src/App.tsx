@@ -41,7 +41,7 @@ import { InvitePage } from './components/InvitePage';
 import { Dashboard } from './components/Dashboard';
 import { CheckoutModal } from './components/CheckoutModal';
 import { Link2, Copy, Check, FileBarChart, Play, Filter, Download, CreditCard, Lock } from 'lucide-react';
-import { LogOut, ShieldCheck } from 'lucide-react';
+import { LogOut, ShieldCheck, Menu, X } from 'lucide-react';
 import { AdminPage } from './components/AdminPage';
 import { TermsPage } from './components/TermsPage';
 import { PrivacyPage } from './components/PrivacyPage';
@@ -152,6 +152,7 @@ function AppContent() {
   const [myAuditions, setMyAuditions] = useState<any[]>([]);
   const [judgingAuditions, setJudgingAuditions] = useState<any[]>([]);
   const [roundsAuditionId, setRoundsAuditionId] = useState<number | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Form states
   const [showAddAudition, setShowAddAudition] = useState(false);
@@ -655,17 +656,49 @@ function AppContent() {
   });
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans print:bg-white">
-      {/* Sidebar */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-10 print:hidden">
-        <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
-          <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
-            <ClipboardList size={24} />
+    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans overflow-x-clip print:bg-white">
+      {/* Mobile top bar */}
+      <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between gap-3 bg-white/95 backdrop-blur border-b border-[#E5E7EB] px-4 py-3 print:hidden">
+        <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); setMobileNavOpen(false); }} className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 bg-[#4F46E5] rounded-lg flex items-center justify-center text-white shrink-0">
+            <ClipboardList size={18} />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">AuditionEase</h1>
+          <span className="text-lg font-bold tracking-tight truncate">AuditionEase</span>
         </a>
+        <button
+          onClick={() => setMobileNavOpen(true)}
+          className="p-2 -mr-2 rounded-lg text-[#374151] hover:bg-[#F3F4F6]"
+          aria-label="Open menu"
+        >
+          <Menu size={24} />
+        </button>
+      </header>
 
-        <nav className="flex flex-col gap-2">
+      {/* Mobile nav backdrop */}
+      {mobileNavOpen && (
+        <div className="lg:hidden fixed inset-0 bg-black/40 z-40 print:hidden" onClick={() => setMobileNavOpen(false)} />
+      )}
+
+      {/* Sidebar (slide-out drawer below lg) */}
+      <div className={`fixed left-0 top-0 h-full w-64 max-w-[85vw] bg-white border-r border-[#E5E7EB] p-6 flex flex-col gap-8 z-50 lg:z-10 overflow-y-auto transition-transform duration-200 lg:translate-x-0 print:hidden ${mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <a href="/" onClick={(e) => { e.preventDefault(); setSelectedAudition(null); setActiveTab('dashboard'); setMobileNavOpen(false); }} className="flex items-center gap-3 px-2 cursor-pointer hover:opacity-80 transition-opacity">
+            <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
+              <ClipboardList size={24} />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight">AuditionEase</h1>
+          </a>
+          <button
+            onClick={() => setMobileNavOpen(false)}
+            className="lg:hidden p-2 -mr-2 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]"
+            aria-label="Close menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Clicks on any nav item bubble up here and close the mobile drawer */}
+        <nav className="flex flex-col gap-2" onClick={() => setMobileNavOpen(false)}>
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-[#4F46E5] text-white shadow-lg shadow-indigo-100' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}
@@ -752,7 +785,7 @@ function AppContent() {
       </div>
 
       {/* Main Content */}
-      <main className="ml-64 p-10 print:ml-0 print:p-0">
+      <main className="lg:ml-64 px-4 py-6 sm:p-6 lg:p-10 print:ml-0 print:p-0">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <Dashboard
@@ -776,14 +809,14 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
               className="max-w-5xl mx-auto"
             >
-              <div className="flex justify-between items-center mb-10">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-10">
                 <div>
-                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Auditions</h2>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Auditions</h2>
                   <p className="text-[#6B7280]">Schedule slots, track applicants, and manage section placement.</p>
                 </div>
                 <button
                   onClick={openNewAudition}
-                  className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
+                  className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100 shrink-0"
                 >
                   <Plus size={20} />
                   New Audition
@@ -796,18 +829,18 @@ function AppContent() {
                     <thead>
                       <tr className="border-b border-[#E5E7EB] text-left text-sm font-bold text-[#374151]">
                         {([
-                          { key: 'title', label: 'Title' },
-                          { key: 'status', label: 'Status' },
-                          { key: 'date', label: 'Start Date' },
-                          { key: 'openSlots', label: 'Open Slots' },
-                          { key: 'filledSlots', label: 'Filled Slots' },
-                          { key: 'userCount', label: 'Applicants' },
-                          { key: 'createdAt', label: 'Created' },
+                          { key: 'title', label: 'Title', hide: '' },
+                          { key: 'status', label: 'Status', hide: '' },
+                          { key: 'date', label: 'Start Date', hide: 'hidden md:table-cell' },
+                          { key: 'openSlots', label: 'Open Slots', hide: 'hidden lg:table-cell' },
+                          { key: 'filledSlots', label: 'Filled Slots', hide: 'hidden lg:table-cell' },
+                          { key: 'userCount', label: 'Applicants', hide: 'hidden sm:table-cell' },
+                          { key: 'createdAt', label: 'Created', hide: 'hidden lg:table-cell' },
                         ] as const).map(col => (
                           <th
                             key={col.key}
                             onClick={() => setAuditionSort(prev => ({ key: col.key, dir: prev.key === col.key && prev.dir === 'asc' ? 'desc' : 'asc' }))}
-                            className="px-5 py-4 cursor-pointer select-none hover:bg-[#F9FAFB] transition-colors"
+                            className={`px-3 sm:px-5 py-4 cursor-pointer select-none hover:bg-[#F9FAFB] transition-colors ${col.hide}`}
                           >
                             <div className="flex items-center gap-1.5">
                               {col.label}
@@ -839,13 +872,13 @@ function AppContent() {
                           onClick={() => handleSelectAudition(audition)}
                           className="border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] cursor-pointer transition-colors"
                         >
-                          <td className="px-5 py-4">
+                          <td className="px-3 sm:px-5 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex-shrink-0">
+                              <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex-shrink-0 hidden sm:block">
                                 <Mic2 size={16} />
                               </div>
                               <div className="min-w-0">
-                                <div className="font-bold text-[#111827] truncate">{audition.title}</div>
+                                <div className="font-bold text-[#111827] break-words">{audition.title}</div>
                                 <div className="flex items-center gap-1.5 mt-0.5" onClick={e => e.stopPropagation()}>
                                   <Link2 size={10} className="text-[#4F46E5] flex-shrink-0" />
                                   <span className="text-xs font-mono text-[#4F46E5] truncate">{audition.inviteCode}</span>
@@ -856,16 +889,20 @@ function AppContent() {
                                       setCopiedInvite(true);
                                       setTimeout(() => setCopiedInvite(false), 2000);
                                     }}
-                                    className="text-[#6B7280] hover:text-[#4F46E5] transition-colors flex-shrink-0"
+                                    className="p-1.5 -m-1 text-[#6B7280] hover:text-[#4F46E5] transition-colors flex-shrink-0"
                                     title="Copy invite link"
                                   >
-                                    {copiedInvite ? <Check size={10} className="text-[#10B981]" /> : <Copy size={10} />}
+                                    {copiedInvite ? <Check size={12} className="text-[#10B981]" /> : <Copy size={12} />}
                                   </button>
+                                </div>
+                                <div className="md:hidden text-xs text-[#6B7280] mt-1">
+                                  {audition.date}
+                                  <span className="sm:hidden"> · {audition.userCount} applicant{audition.userCount !== 1 ? 's' : ''}</span>
                                 </div>
                               </div>
                             </div>
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-3 sm:px-5 py-4">
                             <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                               audition.status === 'open' ? 'bg-[#ECFDF5] text-[#10B981]' :
                               audition.status === 'closed' ? 'bg-[#FEF3C7] text-[#D97706]' :
@@ -874,16 +911,16 @@ function AppContent() {
                               {audition.status}
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-sm text-[#6B7280]">{audition.date}</td>
-                          <td className="px-5 py-4 text-sm text-[#6B7280]">{audition.openSlots}</td>
-                          <td className="px-5 py-4 text-sm text-[#6B7280]">{audition.filledSlots}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-5 py-4 text-sm text-[#6B7280] hidden md:table-cell">{audition.date}</td>
+                          <td className="px-5 py-4 text-sm text-[#6B7280] hidden lg:table-cell">{audition.openSlots}</td>
+                          <td className="px-5 py-4 text-sm text-[#6B7280] hidden lg:table-cell">{audition.filledSlots}</td>
+                          <td className="px-5 py-4 hidden sm:table-cell">
                             <div className="flex items-center gap-1.5 text-sm text-[#6B7280]">
                               <Users size={14} />
                               {audition.userCount}
                             </div>
                           </td>
-                          <td className="px-5 py-4 text-sm text-[#6B7280]">
+                          <td className="px-5 py-4 text-sm text-[#6B7280] hidden lg:table-cell">
                             {audition.createdAt ? new Date(audition.createdAt).toLocaleDateString() : '—'}
                           </td>
                         </tr>
@@ -907,20 +944,20 @@ function AppContent() {
                     ← Back to all auditions
                   </button>
 
-                  <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
-                    <div className="flex justify-between items-start mb-8">
-                      <div>
-                        <h3 className="text-2xl font-bold mb-2">{selectedAudition.title}</h3>
+                  <div className="bg-white p-5 sm:p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
+                    <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-8">
+                      <div className="min-w-0">
+                        <h3 className="text-xl sm:text-2xl font-bold mb-2 break-words">{selectedAudition.title}</h3>
                         <div className="flex items-center gap-2 mb-2">
-                          <Link2 size={14} className="text-[#4F46E5]" />
-                          <span className="text-sm font-mono text-[#4F46E5]">{window.location.origin}/invite/{selectedAudition.inviteCode}</span>
+                          <Link2 size={14} className="text-[#4F46E5] shrink-0" />
+                          <span className="text-sm font-mono text-[#4F46E5] break-all min-w-0">{window.location.origin}/invite/{selectedAudition.inviteCode}</span>
                           <button
                             onClick={() => {
                               navigator.clipboard.writeText(`${window.location.origin}/invite/${selectedAudition.inviteCode}`);
                               setCopiedInvite(true);
                               setTimeout(() => setCopiedInvite(false), 2000);
                             }}
-                            className="text-[#6B7280] hover:text-[#4F46E5] transition-colors"
+                            className="p-2 -m-1.5 shrink-0 text-[#6B7280] hover:text-[#4F46E5] transition-colors"
                             title="Copy invite link"
                           >
                             {copiedInvite ? <Check size={14} className="text-[#10B981]" /> : <Copy size={14} />}
@@ -929,7 +966,7 @@ function AppContent() {
                         <p className="text-sm text-[#6B7280] mb-2">Share this link with anyone you'd like to invite to your audition. They'll be able to sign up, pick a time slot, and fill out any information you need.</p>
                         <p className="text-[#6B7280]">{selectedAudition.description}</p>
                       </div>
-                      <div className="flex gap-3">
+                      <div className="flex flex-wrap gap-2 sm:gap-3 shrink-0">
                         <button
                           onClick={() => {
                             setNewAudition({
@@ -990,7 +1027,7 @@ function AppContent() {
                               if (next.has(date)) next.delete(date); else next.add(date);
                               return next;
                             })}
-                            className="font-bold text-sm text-[#4F46E5] uppercase tracking-wider flex items-center gap-2 pt-2 hover:opacity-80 transition-opacity"
+                            className="font-bold text-sm text-[#4F46E5] uppercase tracking-wider flex flex-wrap items-center gap-2 pt-2 text-left hover:opacity-80 transition-opacity"
                           >
                             <ChevronDown size={16} className={`transition-transform ${collapsedDates.has(date) ? '-rotate-90' : ''}`} />
                             <Calendar size={16} />
@@ -1001,11 +1038,11 @@ function AppContent() {
                             {dateSlots.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(slot => {
                               const slotUser = currentAuditionUsers.find(u => u.userId === slot.userId);
                               return (
-                              <div key={slot.id} className={`flex items-center justify-between p-4 rounded-2xl border ${slot.status === 'closed' ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60' : 'bg-[#F9FAFB] border-[#F3F4F6]'}`}>
-                                <div className="flex items-center gap-6">
+                              <div key={slot.id} className={`flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl border ${slot.status === 'closed' ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60' : 'bg-[#F9FAFB] border-[#F3F4F6]'}`}>
+                                <div className="flex flex-wrap items-center gap-3 sm:gap-6 min-w-0">
                                   {!slot.userId && (
                                     <div className="flex items-center gap-1">
-                                      <label className="flex items-center cursor-pointer" title={slot.status === 'closed' ? 'Re-open slot' : 'Close slot'}>
+                                      <label className="flex items-center cursor-pointer p-1.5 -m-1" title={slot.status === 'closed' ? 'Re-open slot' : 'Close slot'}>
                                         <input
                                           type="checkbox"
                                           checked={slot.status !== 'closed'}
@@ -1026,7 +1063,7 @@ function AppContent() {
                                           await authFetch(`/api/slots/${slot.id}`, { method: 'DELETE' });
                                           if (selectedAudition) fetchSlots(selectedAudition.id);
                                         }}
-                                        className="p-1 text-[#D1D5DB] hover:text-[#EF4444] transition-colors"
+                                        className="p-2 text-[#9CA3AF] sm:text-[#D1D5DB] hover:text-[#EF4444] transition-colors"
                                         title="Delete slot"
                                       >
                                         <Trash2 size={14} />
@@ -1039,11 +1076,11 @@ function AppContent() {
                                   {slot.status === 'closed' ? (
                                     <span className="text-[#9CA3AF] text-sm italic">Closed</span>
                                   ) : slot.userId ? (
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-8 h-8 bg-[#4F46E5] rounded-full flex items-center justify-center text-white text-xs font-bold">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="w-8 h-8 bg-[#4F46E5] rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
                                         {slotUser?.firstName?.charAt(0) || '?'}
                                       </div>
-                                      <div>
+                                      <div className="min-w-0">
                                         <p className="font-bold text-sm">{slotUser?.firstName} {slotUser?.lastName}</p>
                                       </div>
                                     </div>
@@ -1052,11 +1089,11 @@ function AppContent() {
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center justify-end gap-3 empty:hidden has-[select]:w-full sm:has-[select]:w-auto">
                                   {slot.status === 'available' && (
                                     <select
                                       onChange={(e) => handleBookSlot(slot.id, parseInt(e.target.value))}
-                                      className="text-sm border border-[#E5E7EB] rounded-lg px-3 py-1.5 bg-white font-medium"
+                                      className="w-full sm:w-auto text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 sm:py-1.5 bg-white font-medium"
                                       defaultValue=""
                                     >
                                       <option value="" disabled>Assign Applicant</option>
@@ -1076,7 +1113,7 @@ function AppContent() {
                                           });
                                           if (selectedAudition) fetchSlots(selectedAudition.id);
                                         }}
-                                        className="p-1.5 text-[#D1D5DB] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
+                                        className="p-2 sm:p-1.5 text-[#9CA3AF] sm:text-[#D1D5DB] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg transition-colors"
                                         title="Clear assignment"
                                       >
                                         <XCircle size={18} />
@@ -1110,9 +1147,9 @@ function AppContent() {
               exit={{ opacity: 0, x: -20 }}
               className="max-w-5xl mx-auto"
             >
-              <div className="flex justify-between items-center mb-10">
+              <div className="flex justify-between items-center mb-6 sm:mb-10">
                 <div>
-                  <h2 className="text-3xl font-extrabold tracking-tight mb-2">Applicant Directory</h2>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Applicant Directory</h2>
                   <p className="text-[#6B7280]">View applicants registered for your auditions.</p>
                 </div>
               </div>
@@ -1135,7 +1172,7 @@ function AppContent() {
               </div>
 
               {!vocalistAuditionId ? (
-                <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center">
+                <div className="bg-white p-8 sm:p-16 rounded-3xl border border-[#E5E7EB] text-center">
                   <Users size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
                   <h3 className="text-lg font-bold text-[#374151] mb-2">Select an Audition</h3>
                   <p className="text-sm text-[#6B7280]">Choose an audition above to view its registered applicants.</p>
@@ -1164,29 +1201,32 @@ function AppContent() {
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-[#F9FAFB] border-bottom border-[#E5E7EB]">
-                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Name</th>
-                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Contact</th>
-                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">Actions</th>
+                            <th className="px-4 sm:px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">Name</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider hidden sm:table-cell">Contact</th>
+                            <th className="px-4 sm:px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right"><span className="hidden sm:inline">Actions</span></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#F3F4F6]">
                           {filteredVocalists.map(vocalist => (
                             <tr key={vocalist.userId} onClick={() => setShowUserDetails(vocalist)} className="hover:bg-[#F9FAFB] transition-colors group cursor-pointer">
-                              <td className="px-6 py-5">
+                              <td className="px-4 sm:px-6 py-4 sm:py-5">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold">
+                                  <div className="w-10 h-10 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex items-center justify-center font-bold shrink-0">
                                     {vocalist.firstName.charAt(0)}
                                   </div>
-                                  <span className="font-bold text-[#111827]">{vocalist.firstName} {vocalist.lastName}</span>
+                                  <div className="min-w-0">
+                                    <span className="font-bold text-[#111827] break-words">{vocalist.firstName} {vocalist.lastName}</span>
+                                    <p className="sm:hidden text-xs text-[#6B7280] break-all">{vocalist.email}</p>
+                                  </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-5">
+                              <td className="px-6 py-5 hidden sm:table-cell">
                                 <div className="text-sm">
-                                  <p className="text-[#111827] font-medium">{vocalist.email}</p>
+                                  <p className="text-[#111827] font-medium break-all">{vocalist.email}</p>
                                   <p className="text-[#6B7280]">{vocalist.phone}</p>
                                 </div>
                               </td>
-                              <td className="px-6 py-5 text-right">
+                              <td className="px-4 sm:px-6 py-4 sm:py-5 text-right w-10">
                                 <ChevronRight size={20} className="text-[#6B7280] group-hover:text-[#4F46E5] transition-colors" />
                               </td>
                             </tr>
@@ -1227,14 +1267,14 @@ function AppContent() {
               className="max-w-5xl mx-auto"
             >
               <div className="mb-8">
-                <h2 className="text-3xl font-extrabold tracking-tight mb-2">Settings</h2>
+                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Settings</h2>
                 <p className="text-[#6B7280]">Configure your AuditionEase account settings.</p>
               </div>
 
-              <div className="flex gap-1 mb-8 bg-[#F3F4F6] p-1 rounded-xl w-fit">
+              <div className="flex gap-1 mb-6 sm:mb-8 bg-[#F3F4F6] p-1 rounded-xl w-fit max-w-full overflow-x-auto">
                 <button
                   onClick={() => setSetupTab('general')}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'general' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                  className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'general' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                 >
                   <Settings size={16} />
                   General
@@ -1243,28 +1283,28 @@ function AppContent() {
                   <>
                     <button
                       onClick={() => setSetupTab('attributes')}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'attributes' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                     >
                       <ClipboardList size={16} />
                       Applicant Attributes
                     </button>
                     <button
                       onClick={() => setSetupTab('attributeSets')}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'attributeSets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'attributeSets' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                     >
                       <Filter size={16} />
                       Attribute Sets
                     </button>
                     <button
                       onClick={() => setSetupTab('scoringTemplates')}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'scoringTemplates' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'scoringTemplates' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                     >
                       <Scale size={16} />
                       Scoring Templates
                     </button>
                     <button
                       onClick={() => setSetupTab('judges')}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'judges' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'judges' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                     >
                       <Gavel size={16} />
                       Judges
@@ -1282,7 +1322,7 @@ function AppContent() {
                         .catch(() => {})
                         .finally(() => setSubscriptionLoading(false));
                     }}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${setupTab === 'billing' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
+                    className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap shrink-0 transition-all ${setupTab === 'billing' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#374151]'}`}
                   >
                     <CreditCard size={16} />
                     Billing
@@ -1308,14 +1348,14 @@ function AppContent() {
               )}
 
               {setupTab === 'general' && (
-                <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
+                <div className="bg-white p-5 sm:p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
                   <h3 className="text-lg font-bold text-[#374151] mb-6">Account</h3>
                   <div className="space-y-6">
                     <div>
                       <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Name</label>
                       {!editingName ? (
-                        <div className="flex items-center gap-3">
-                          <p className="text-[#111827] font-medium">{user.firstName} {user.lastName}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <p className="text-[#111827] font-medium break-words">{user.firstName} {user.lastName}</p>
                           <button
                             onClick={() => { setEditingName(true); setEditFirstName(user.firstName); setEditLastName(user.lastName); }}
                             className="text-sm text-[#4F46E5] font-bold hover:underline"
@@ -1325,7 +1365,7 @@ function AppContent() {
                         </div>
                       ) : (
                         <div className="mt-2 p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] space-y-3">
-                          <div className="flex gap-3">
+                          <div className="flex flex-col sm:flex-row gap-3">
                             <div className="flex-1">
                               <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">First Name</label>
                               <input
@@ -1383,8 +1423,8 @@ function AppContent() {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-[#6B7280] uppercase mb-1">Email</label>
-                      <div className="flex items-center gap-3">
-                        <p className="text-[#111827] font-medium">{user.email}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <p className="text-[#111827] font-medium break-all">{user.email}</p>
                         {!showEmailChange && (
                           <button
                             onClick={() => { setShowEmailChange(true); setNewEmail(''); setEmailChangeCode(''); setEmailChangeStep('input'); setEmailChangeError(''); }}
@@ -1510,7 +1550,7 @@ function AppContent() {
               {setupTab === 'attributes' && !orgMembership && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1">
-                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
+                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm lg:sticky lg:top-10">
                       <h3 className="text-lg font-bold mb-4">Add New Attribute</h3>
                       <form onSubmit={handleAddAttribute} className="space-y-4">
                         <div>
@@ -1578,26 +1618,26 @@ function AppContent() {
                       </div>
                     ) : (
                       customAttributes.map((attr, idx) => (
-                        <div key={attr.id} className="bg-white p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                        <div key={attr.id} className="bg-white p-3 sm:p-4 rounded-2xl border border-[#E5E7EB] flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <div className="flex flex-col">
                               <button
                                 onClick={() => handleReorderAttribute(attr.id, 'up')}
                                 disabled={idx === 0}
-                                className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                                className="p-1.5 sm:p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
                               >
                                 <ArrowUp size={16} />
                               </button>
                               <button
                                 onClick={() => handleReorderAttribute(attr.id, 'down')}
                                 disabled={idx === customAttributes.length - 1}
-                                className="p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                                className="p-1.5 sm:p-0.5 text-[#6B7280] hover:text-[#111827] disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
                               >
                                 <ArrowDown size={16} />
                               </button>
                             </div>
-                            <div>
-                              <p className="font-bold">{attr.label}</p>
+                            <div className="min-w-0">
+                              <p className="font-bold break-words">{attr.label}</p>
                               <p className="text-xs text-[#6B7280] uppercase tracking-wider">{attr.type === 'select' ? 'Dropdown (Select One)' : attr.type === 'multiselect' ? 'Dropdown (Select Multiple)' : attr.type} {attr.required ? '• Required' : ''}</p>
                             </div>
                           </div>
@@ -1617,7 +1657,7 @@ function AppContent() {
               {setupTab === 'attributeSets' && !orgMembership && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1">
-                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm sticky top-10">
+                    <div className="bg-white p-6 rounded-3xl border border-[#E5E7EB] shadow-sm lg:sticky lg:top-10">
                       <h3 className="text-lg font-bold mb-4">{editingSet ? 'Edit Attribute Set' : 'Create Attribute Set'}</h3>
                       <form onSubmit={editingSet ? handleUpdateAttributeSet : handleAddAttributeSet} className="space-y-4">
                         <div>
@@ -1642,12 +1682,12 @@ function AppContent() {
                                     const allIds = customAttributes.map(a => a.id);
                                     editingSet ? setEditSetAttrIds(allIds) : setNewSetAttrIds(allIds);
                                   }}
-                                  className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                                  className="text-xs sm:text-[10px] px-1 py-1 text-[#4F46E5] hover:underline font-medium"
                                 >Select All</button>
                                 <button
                                   type="button"
                                   onClick={() => editingSet ? setEditSetAttrIds([]) : setNewSetAttrIds([])}
-                                  className="text-[10px] text-[#4F46E5] hover:underline font-medium"
+                                  className="text-xs sm:text-[10px] px-1 py-1 text-[#4F46E5] hover:underline font-medium"
                                 >Clear All</button>
                               </div>
                             )}
@@ -1711,15 +1751,17 @@ function AppContent() {
                     ) : (
                       attributeSets.map(set => (
                         <div key={set.id} className="bg-white p-5 rounded-2xl border border-[#E5E7EB]">
-                          <div className="flex items-start justify-between mb-3">
-                            <div>
-                              <p className="font-bold text-[#111827]">{set.name}</p>
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div className="min-w-0">
+                              <p className="font-bold text-[#111827] break-words">{set.name}</p>
                               <p className="text-xs text-[#6B7280] mt-0.5">{set.attributeIds.length} attribute{set.attributeIds.length !== 1 ? 's' : ''}</p>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 shrink-0">
                               <button
                                 onClick={() => {
                                   setEditingSet(set);
+                                  // On phones the edit form is stacked above the list
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
                                   setEditSetName(set.name);
                                   setEditSetAttrIds([...set.attributeIds]);
                                 }}
@@ -1757,7 +1799,7 @@ function AppContent() {
 
               {setupTab === 'billing' && (!orgMembership || orgMembership.role === 'owner') && (
                 <div className="space-y-8">
-                  <div className="bg-white p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
+                  <div className="bg-white p-5 sm:p-8 rounded-3xl border border-[#E5E7EB] shadow-sm">
                     <h3 className="text-lg font-bold text-[#374151] mb-6">Current Plan</h3>
                     {subscriptionLoading ? (
                       <div className="flex items-center justify-center py-12">
@@ -1765,8 +1807,8 @@ function AppContent() {
                       </div>
                     ) : currentSubscription ? (
                       <div className="space-y-4">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white ${currentSubscription.plan === 'enterprise' ? 'bg-[#1A1A1A]' : 'bg-[#4F46E5]'}`}>
+                        <div className="flex flex-wrap items-center gap-4">
+                          <div className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-white ${currentSubscription.plan === 'enterprise' ? 'bg-[#1A1A1A]' : 'bg-[#4F46E5]'}`}>
                             <CreditCard size={24} />
                           </div>
                           <div>
@@ -1784,7 +1826,7 @@ function AppContent() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[#E0E7FF] text-[#4F46E5]">
+                        <div className="shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center bg-[#E0E7FF] text-[#4F46E5]">
                           <CreditCard size={24} />
                         </div>
                         <div>
@@ -1912,13 +1954,13 @@ function AppContent() {
 
       {/* Modals */}
       {showAddAudition && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
+            className="bg-white w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-3xl p-5 sm:p-8 shadow-2xl"
           >
-            <h3 className="text-2xl font-bold mb-6">{editingAudition ? 'Edit Audition' : 'Create New Audition'}</h3>
+            <h3 className="text-xl sm:text-2xl font-bold mb-6">{editingAudition ? 'Edit Audition' : 'Create New Audition'}</h3>
             <form onSubmit={editingAudition ? handleEditAudition : handleAddAudition} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-[#374151] mb-1.5">Audition Title</label>
@@ -1940,7 +1982,7 @@ function AppContent() {
                   placeholder="What are you looking for?"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-[#374151] mb-1.5">Start Date</label>
                   <input
@@ -2058,11 +2100,11 @@ function AppContent() {
       )}
 
       {showDeleteAudition && selectedAudition && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
+            className="bg-white rounded-2xl shadow-2xl p-5 sm:p-8 max-w-md w-full max-h-[90dvh] overflow-y-auto"
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
@@ -2111,13 +2153,13 @@ function AppContent() {
       )}
 
       {showGenerateSlots && selectedAudition && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl"
+            className="bg-white w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-3xl p-5 sm:p-8 shadow-2xl"
           >
-            <h3 className="text-2xl font-bold mb-6">Generate Time Slots</h3>
+            <h3 className="text-xl sm:text-2xl font-bold mb-6">Generate Time Slots</h3>
             <form onSubmit={async (e) => {
               e.preventDefault();
               const start = new Date(`2000-01-01T${slotConfig.startTime}`);
@@ -2266,24 +2308,24 @@ function AppContent() {
       )}
 
       {showUserDetails && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-lg max-h-[90vh] rounded-3xl p-8 shadow-2xl flex flex-col"
+            className="bg-white w-full max-w-lg max-h-[90dvh] rounded-3xl p-5 sm:p-8 shadow-2xl flex flex-col"
           >
             <div className="flex justify-between items-start gap-3 mb-6 shrink-0">
               <div className="flex items-center gap-4 min-w-0">
                 <div className="w-12 h-12 bg-[#EEF2FF] text-[#4F46E5] rounded-2xl flex items-center justify-center font-bold text-xl shrink-0">
                   {(editingUserDetails ? editUserForm.firstName : showUserDetails.firstName).charAt(0) || '?'}
                 </div>
-                <h3 className="text-2xl font-bold truncate">
+                <h3 className="text-xl sm:text-2xl font-bold truncate">
                   {editingUserDetails ? `${editUserForm.firstName} ${editUserForm.lastName}` : `${showUserDetails.firstName} ${showUserDetails.lastName}`}
                 </h3>
               </div>
               <button
                 onClick={() => { setShowUserDetails(null); setEditingUserDetails(false); }}
-                className="text-[#6B7280] hover:text-[#111827] shrink-0"
+                className="p-1 -m-1 text-[#6B7280] hover:text-[#111827] shrink-0"
               >
                 <XCircle size={24} />
               </button>
@@ -2291,11 +2333,11 @@ function AppContent() {
 
             {!editingUserDetails ? (
               <>
-                <div className="overflow-y-auto min-h-0 flex-1 space-y-6 pr-6">
+                <div className="overflow-y-auto min-h-0 flex-1 space-y-6 pr-1 sm:pr-6">
                   <div className="space-y-4">
                     <div>
                       <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Email</p>
-                      <p className="font-medium">{showUserDetails.email}</p>
+                      <p className="font-medium break-all">{showUserDetails.email}</p>
                     </div>
                     <div>
                       <p className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">Phone</p>
@@ -2319,9 +2361,9 @@ function AppContent() {
                             displayValue = cfv.value;
                           }
                           return (
-                            <div key={cfv.id} className="flex justify-between items-center py-2 border-b border-[#F3F4F6] last:border-0">
+                            <div key={cfv.id} className="flex justify-between items-center gap-3 py-2 border-b border-[#F3F4F6] last:border-0">
                               <span className="text-sm font-medium text-[#6B7280]">{attr.label}</span>
-                              <div className="text-right">
+                              <div className="text-right min-w-0 break-words">
                                 <span className="text-sm font-bold text-[#111827]">{displayValue}</span>
                                 <p className="text-[10px] text-[#9CA3AF] mt-0.5">
                                   {new Date(cfv.updatedAt).toLocaleString()}
@@ -2363,8 +2405,8 @@ function AppContent() {
               </>
             ) : (
               <>
-                <div className="overflow-y-auto min-h-0 flex-1 space-y-4 pr-6">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="overflow-y-auto min-h-0 flex-1 space-y-4 pr-1 sm:pr-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-1">First Name</label>
                       <input

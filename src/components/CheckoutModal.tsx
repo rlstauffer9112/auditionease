@@ -50,26 +50,26 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ plan, onClose }) =
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4">
-        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto mx-4">
+        <div className="flex items-center justify-between gap-3 p-4 sm:p-6 border-b border-gray-100">
           <div>
-            <h2 className="text-xl font-bold text-[#1A1A1A]">
+            <h2 className="text-lg sm:text-xl font-bold text-[#1A1A1A]">
               Subscribe to {planNames[plan]}
             </h2>
             <p className="text-sm text-gray-500 mt-1">{planPrices[plan]}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            className="p-2 shrink-0 rounded-xl hover:bg-gray-100 transition-colors"
           >
             <X size={20} className="text-gray-400" />
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-3 sm:p-6">
           {error ? (
             <div className="text-center py-12">
-              <p className="text-red-500 mb-4">{error}</p>
+              <p className="text-red-500 mb-4 break-words">{error}</p>
               <button
                 onClick={onClose}
                 className="px-6 py-2 rounded-xl bg-gray-100 font-medium hover:bg-gray-200 transition-colors"

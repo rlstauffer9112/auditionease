@@ -149,22 +149,22 @@ export const ApplicantDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
-      <header className="bg-white border-b border-[#E5E7EB] px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
+      <header className="bg-white border-b border-[#E5E7EB] px-4 sm:px-6 py-4">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-10 h-10 shrink-0 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white">
               <Music size={24} />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">AuditionEase</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">AuditionEase</h1>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm font-bold">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-[#6B7280]">{user?.email}</p>
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <div className="text-right min-w-0">
+              <p className="text-sm font-bold truncate">{user?.firstName} {user?.lastName}</p>
+              <p className="hidden sm:block text-xs text-[#6B7280] truncate">{user?.email}</p>
             </div>
             <button
               onClick={logout}
-              className="p-2 text-[#6B7280] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              className="p-2 shrink-0 text-[#6B7280] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
               title="Sign Out"
             >
               <LogOut size={18} />
@@ -173,14 +173,14 @@ export const ApplicantDashboard: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
-        <div className="mb-10">
-          <h2 className="text-3xl font-extrabold tracking-tight mb-2">My Auditions</h2>
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <div className="mb-6 sm:mb-10">
+          <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">My Auditions</h2>
           <p className="text-[#6B7280]">View your upcoming auditions and manage your time slots.</p>
         </div>
 
         {myAuditions.length === 0 ? (
-          <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center shadow-sm">
+          <div className="bg-white p-8 sm:p-16 rounded-3xl border border-[#E5E7EB] text-center shadow-sm">
             <Calendar size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
             <h3 className="text-lg font-bold text-[#374151] mb-2">No Auditions Yet</h3>
             <p className="text-sm text-[#6B7280]">You haven't signed up for any auditions. Use an invite link to register.</p>
@@ -194,14 +194,14 @@ export const ApplicantDashboard: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm overflow-hidden"
               >
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-[#111827] mb-1">{audition.title}</h3>
+                <div className="p-5 sm:p-6">
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div className="min-w-0">
+                      <h3 className="text-lg sm:text-xl font-bold text-[#111827] mb-1 break-words">{audition.title}</h3>
                       {audition.description && (
-                        <p className="text-sm text-[#6B7280] mb-3">{audition.description}</p>
+                        <p className="text-sm text-[#6B7280] mb-3 break-words">{audition.description}</p>
                       )}
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-[#6B7280]">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#6B7280]">
                         {audition.date && (
                           <span className="flex items-center gap-1.5">
                             <Calendar size={14} className="text-[#4F46E5]" />
@@ -229,9 +229,9 @@ export const ApplicantDashboard: React.FC = () => {
 
                   <div className="mt-5 pt-5 border-t border-[#F3F4F6]">
                     {audition.slot ? (
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-[#ECFDF5] rounded-xl">
+                          <div className="p-2.5 shrink-0 bg-[#ECFDF5] rounded-xl">
                             <CheckCircle2 size={20} className="text-[#10B981]" />
                           </div>
                           <div>
@@ -246,17 +246,17 @@ export const ApplicantDashboard: React.FC = () => {
                           </div>
                         </div>
                         {audition.status === 'open' && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => openSlotPicker(audition.id)}
-                              className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#4F46E5] hover:bg-[#EEF2FF] transition-colors"
+                              className="flex-1 sm:flex-none px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#4F46E5] hover:bg-[#EEF2FF] transition-colors"
                             >
                               Change Time Slot
                             </button>
                             <button
                               onClick={() => cancelSlot(audition.id)}
                               disabled={cancellingAuditionId === audition.id}
-                              className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                              className="flex-1 sm:flex-none px-4 py-2 border border-[#E5E7EB] rounded-xl text-sm font-bold text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
                             >
                               {cancellingAuditionId === audition.id ? <Loader2 size={16} className="animate-spin" /> : 'Cancel Time Slot'}
                             </button>
@@ -264,9 +264,9 @@ export const ApplicantDashboard: React.FC = () => {
                         )}
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-[#FEF3C7] rounded-xl">
+                          <div className="p-2.5 shrink-0 bg-[#FEF3C7] rounded-xl">
                             <Clock size={20} className="text-[#D97706]" />
                           </div>
                           <div>
@@ -276,7 +276,7 @@ export const ApplicantDashboard: React.FC = () => {
                         {audition.status === 'open' && (
                           <button
                             onClick={() => openSlotPicker(audition.id)}
-                            className="px-5 py-2.5 bg-[#4F46E5] text-white rounded-xl text-sm font-bold hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
+                            className="w-full sm:w-auto px-5 py-2.5 bg-[#4F46E5] text-white rounded-xl text-sm font-bold hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
                           >
                             Sign Up for Time Slot
                           </button>
@@ -293,24 +293,24 @@ export const ApplicantDashboard: React.FC = () => {
 
       <AnimatePresence>
         {slotPickerAuditionId !== null && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[80vh] flex flex-col"
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90dvh] sm:max-h-[80vh] flex flex-col"
             >
-              <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB]">
-                <h3 className="text-xl font-bold">Choose a Time Slot</h3>
+              <div className="flex items-center justify-between gap-3 p-5 sm:p-6 border-b border-[#E5E7EB]">
+                <h3 className="text-lg sm:text-xl font-bold">Choose a Time Slot</h3>
                 <button
                   onClick={() => setSlotPickerAuditionId(null)}
-                  className="p-1.5 text-[#6B7280] hover:text-[#111827] hover:bg-[#F3F4F6] rounded-lg transition-colors"
+                  className="p-2 shrink-0 text-[#6B7280] hover:text-[#111827] hover:bg-[#F3F4F6] rounded-lg transition-colors"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="p-6 overflow-y-auto flex-1">
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1">
                 {slotsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-[#4F46E5]" />
@@ -331,7 +331,7 @@ export const ApplicantDashboard: React.FC = () => {
                             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
                           })}
                         </p>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {dateSlots.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(slot => {
                             const isMySlot = slot.userId === user?.id && slot.status === 'booked';
                             const isBooking = bookingSlotId === slot.id;

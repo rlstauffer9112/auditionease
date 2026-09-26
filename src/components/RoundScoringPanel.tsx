@@ -39,7 +39,7 @@ function BlurField({
   const commit = () => {
     if (draft !== value && !invalid) onSave(draft);
   };
-  const cls = `${className || ''} ${invalid ? 'border-[#EF4444] ring-1 ring-[#EF4444]' : 'border-[#E5E7EB]'} border rounded-lg px-2.5 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#4F46E5] outline-none disabled:bg-[#F9FAFB] disabled:text-[#6B7280]`;
+  const cls = `${className || ''} ${invalid ? 'border-[#EF4444] ring-1 ring-[#EF4444]' : 'border-[#E5E7EB]'} border rounded-lg px-2.5 py-2 sm:py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#4F46E5] outline-none disabled:bg-[#F9FAFB] disabled:text-[#6B7280]`;
   if (multiline) {
     return <textarea value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit} placeholder={placeholder} className={cls} rows={2} disabled={disabled} />;
   }
@@ -47,6 +47,7 @@ function BlurField({
     <input
       type={type}
       step={type === 'number' ? 'any' : undefined}
+      inputMode={type === 'number' ? 'decimal' : undefined}
       value={draft}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
@@ -159,7 +160,7 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+        <div className="relative flex-1 basis-full sm:basis-0 min-w-[200px] sm:max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
           <input
             value={search}
@@ -175,12 +176,12 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
           <div className="relative ml-auto">
             <button
               onClick={() => setShowAdd(!showAdd)}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-bold text-[#4F46E5] bg-[#EEF2FF] rounded-xl hover:bg-[#E0E7FF]"
+              className="flex items-center gap-1.5 px-3 py-2.5 sm:py-2 text-sm font-bold text-[#4F46E5] bg-[#EEF2FF] rounded-xl hover:bg-[#E0E7FF]"
             >
               <UserPlus size={14} /> Add participant
             </button>
             {showAdd && (
-              <div className="absolute right-0 mt-2 w-80 max-h-80 overflow-auto bg-white border border-[#E5E7EB] rounded-2xl shadow-xl z-20 p-2">
+              <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] max-h-80 overflow-auto bg-white border border-[#E5E7EB] rounded-2xl shadow-xl z-20 p-2">
                 {candidates.length === 0 ? (
                   <p className="text-sm text-[#6B7280] p-3">Everyone in this audition is already in this round.</p>
                 ) : (
@@ -193,7 +194,7 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                     {candidates.map(c => (
                       <button key={c.auditionUserId} onClick={() => handleAdd([c.auditionUserId])} className="w-full text-left px-3 py-2 hover:bg-[#F9FAFB] rounded-lg">
                         <p className="text-sm font-medium">{c.firstName} {c.lastName}</p>
-                        <p className="text-xs text-[#6B7280]">{c.email}</p>
+                        <p className="text-xs text-[#6B7280] truncate">{c.email}</p>
                       </button>
                     ))}
                   </>
@@ -221,9 +222,9 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
             const done = isFullyScoredByMe(p);
             const others = p.evaluations.filter(e => e.judgeUserId !== currentUserId);
             return (
-              <div key={p.id} className="px-5 py-3">
+              <div key={p.id} className="px-4 sm:px-5 py-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-3 flex-1 min-w-[180px]">
+                  <div className="flex items-center gap-3 flex-1 basis-full sm:basis-0 min-w-0 sm:min-w-[180px]">
                     {done
                       ? <CheckCircle2 size={18} className="text-[#10B981] shrink-0" />
                       : <div className="w-[18px] h-[18px] rounded-full border-2 border-[#E5E7EB] shrink-0" />}
@@ -243,12 +244,12 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                         value={mine?.comment || ''}
                         onSave={v => saveEvaluation(p, { comment: v })}
                         placeholder="Comment"
-                        className="flex-1 min-w-[160px] max-w-xs"
+                        className="flex-1 min-w-0 sm:min-w-[160px] sm:max-w-xs"
                         disabled={readOnly}
                       />
                     </>
                   ) : (
-                    <button onClick={() => setExpandedId(expanded ? null : p.id)} className="text-sm text-[#374151] hover:text-[#4F46E5]">
+                    <button onClick={() => setExpandedId(expanded ? null : p.id)} className="text-sm text-[#374151] hover:text-[#4F46E5] py-2 sm:py-0 text-left">
                       {mine ? <>Your score <span className="font-bold">{formatScore(myTotal)}</span></> : <span className="text-[#9CA3AF]">Not scored</span>}
                       <span className="text-xs text-[#9CA3AF] ml-2">
                         {criteria.filter(c => myScore(p, c) !== null).length}/{criteria.length}
@@ -263,7 +264,7 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                     </div>
                   )}
 
-                  <div className="w-5 flex justify-center">
+                  <div className="w-5 flex justify-center ml-auto sm:ml-0">
                     {savingIds.has(p.id) && <Loader2 size={14} className="animate-spin text-[#4F46E5]" />}
                     {!savingIds.has(p.id) && errors[p.id] && (
                       <span title={errors[p.id]}><AlertCircle size={14} className="text-[#EF4444]" /></span>
@@ -273,17 +274,17 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                   {canExpand && (
                     <button
                       onClick={() => setExpandedId(expanded ? null : p.id)}
-                      className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg"
+                      className="p-2.5 sm:p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg"
                       title="More"
                     >
                       {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </button>
                   )}
                 </div>
-                {errors[p.id] && <p className="text-xs text-[#EF4444] mt-1 ml-8">{errors[p.id]}</p>}
+                {errors[p.id] && <p className="text-xs text-[#EF4444] mt-1 sm:ml-8">{errors[p.id]}</p>}
 
                 {expanded && (
-                  <div className="mt-3 ml-8 space-y-4 pb-2">
+                  <div className="mt-3 sm:ml-8 space-y-4 pb-2">
                     {!single && (
                       <div className="space-y-2">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -314,7 +315,7 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                         <div className="space-y-1.5">
                           {others.map(e => (
                             <div key={e.id} className="text-sm flex flex-wrap gap-x-4 gap-y-1">
-                              <span className="font-medium w-36 truncate">{e.judgeName}</span>
+                              <span className="font-medium w-full sm:w-36 truncate">{e.judgeName}</span>
                               {criteria.map(c => {
                                 const s = e.scores.find(x => x.criterionId === c.id);
                                 return <span key={c.id} className="text-[#6B7280]">{single ? '' : `${c.title}: `}<span className="text-[#111827] font-medium">{formatScore(s?.score ?? null)}</span></span>;
@@ -337,12 +338,12 @@ export function RoundScoringPanel({ detail, authFetch, readOnly, candidates, onP
                         <BlurField value={p.scheduledTime || ''} onSave={v => saveParticipant(p, { scheduledTime: v })} placeholder="e.g. Sat Oct 4, 2:30 PM" className="w-full" />
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => handleNotify(p)} className="flex items-center gap-1 px-3 py-1.5 bg-[#EEF2FF] text-[#4F46E5] rounded-lg text-xs font-bold hover:bg-[#E0E7FF]">
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => handleNotify(p)} className="flex items-center gap-1 px-3 py-2 sm:py-1.5 bg-[#EEF2FF] text-[#4F46E5] rounded-lg text-xs font-bold hover:bg-[#E0E7FF]">
                         <Mail size={12} /> Notify
                       </button>
                       {!readOnly && (
-                        <button onClick={() => handleRemove(p)} className="flex items-center gap-1 px-3 py-1.5 text-[#9CA3AF] rounded-lg text-xs font-bold hover:bg-[#FEF2F2] hover:text-[#EF4444]">
+                        <button onClick={() => handleRemove(p)} className="flex items-center gap-1 px-3 py-2 sm:py-1.5 text-[#9CA3AF] rounded-lg text-xs font-bold hover:bg-[#FEF2F2] hover:text-[#EF4444]">
                           <Trash2 size={12} /> Remove from round
                         </button>
                       )}

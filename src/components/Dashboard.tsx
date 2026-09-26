@@ -191,15 +191,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
         exit={{ opacity: 0, y: -20 }}
         className="max-w-5xl mx-auto"
       >
-        <div className="mb-10">
-          <h2 className="text-3xl font-extrabold tracking-tight mb-2">
+        <div className="mb-8 sm:mb-10">
+          <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2 break-words">
             Welcome back, {user?.firstName}!
           </h2>
           <p className="text-[#6B7280]">Here's an overview of your auditions and activity.</p>
         </div>
 
         {judgingAuditions.length > 0 && (
-          <div className="mb-10">
+          <div className="mb-8 sm:mb-10">
             <div className="mb-5">
               <h3 className="text-xl font-bold text-[#111827]">Auditions to Judge</h3>
               <p className="text-sm text-[#6B7280]">You've been added as a judge for these auditions.</p>
@@ -227,14 +227,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
                     {r ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-[#374151]">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-[#374151] min-w-0">
                           <span className="font-bold">{r.title}</span>
                           <span className="text-[#6B7280]"> · {r.scoredByMe} of {r.participantCount} scored</span>
                         </p>
                         <button
                           onClick={() => onJudge(a.id)}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${done ? 'border border-[#E5E7EB] text-[#4F46E5] hover:bg-[#EEF2FF]' : 'bg-[#4F46E5] text-white hover:bg-[#4338CA] shadow-sm'}`}
+                          className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${done ? 'border border-[#E5E7EB] text-[#4F46E5] hover:bg-[#EEF2FF]' : 'bg-[#4F46E5] text-white hover:bg-[#4338CA] shadow-sm'}`}
                         >
                           {done ? 'Review scores' : r.scoredByMe > 0 ? 'Continue judging' : 'Start judging'}
                         </button>
@@ -250,7 +250,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         {myAuditions.length > 0 && (
-          <div className="mb-10">
+          <div className="mb-8 sm:mb-10">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-xl font-bold text-[#111827]">Auditions You've Joined</h3>
@@ -263,14 +263,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   key={audition.id}
                   className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden p-5"
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2 bg-[#ECFDF5] text-[#10B981] rounded-xl flex-shrink-0">
                         <Calendar size={18} />
                       </div>
-                      <div>
-                        <h4 className="font-bold text-[#111827]">{audition.title}</h4>
-                        <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#6B7280]">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-[#111827] break-words">{audition.title}</h4>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-[#6B7280]">
                           {audition.date && (
                             <span className="flex items-center gap-1">
                               <Calendar size={12} className="text-[#4F46E5]" />
@@ -293,9 +293,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                   <div className="mt-4 pt-4 border-t border-[#F3F4F6]">
                     {audition.slot ? (
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-[#ECFDF5] rounded-xl">
+                          <div className="p-2 shrink-0 bg-[#ECFDF5] rounded-xl">
                             <CheckCircle2 size={18} className="text-[#10B981]" />
                           </div>
                           <div>
@@ -313,14 +313,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => openSlotPicker(audition.id)}
-                              className="px-3 py-1.5 border border-[#E5E7EB] rounded-xl text-xs font-bold text-[#4F46E5] hover:bg-[#EEF2FF] transition-colors"
+                              className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-[#E5E7EB] rounded-xl text-xs font-bold text-[#4F46E5] hover:bg-[#EEF2FF] transition-colors"
                             >
                               Change
                             </button>
                             <button
                               onClick={() => cancelSlot(audition.id)}
                               disabled={cancellingAuditionId === audition.id}
-                              className="px-3 py-1.5 border border-[#E5E7EB] rounded-xl text-xs font-bold text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                              className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-[#E5E7EB] rounded-xl text-xs font-bold text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
                             >
                               {cancellingAuditionId === audition.id ? <Loader2 size={14} className="animate-spin" /> : 'Cancel'}
                             </button>
@@ -328,9 +328,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         )}
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-[#FEF3C7] rounded-xl">
+                          <div className="p-2 shrink-0 bg-[#FEF3C7] rounded-xl">
                             <Clock size={18} className="text-[#D97706]" />
                           </div>
                           <p className="text-sm font-medium text-[#6B7280]">No time slot selected</p>
@@ -338,7 +338,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         {audition.status === 'open' && (
                           <button
                             onClick={() => openSlotPicker(audition.id)}
-                            className="px-4 py-2 bg-[#4F46E5] text-white rounded-xl text-xs font-bold hover:bg-[#4338CA] transition-colors shadow-sm"
+                            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-[#4F46E5] text-white rounded-xl text-xs font-bold hover:bg-[#4338CA] transition-colors shadow-sm"
                           >
                             Sign Up for Time Slot
                           </button>
@@ -353,7 +353,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         {myDivisions.length > 0 && (
-          <div className="mb-10">
+          <div className="mb-8 sm:mb-10">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-xl font-bold text-[#111827]">My Divisions</h3>
@@ -387,21 +387,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         <div>
-          <div className="flex items-center justify-between mb-5">
-            <div>
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <div className="min-w-0">
               <h3 className="text-xl font-bold text-[#111827]">Your Auditions</h3>
               <p className="text-sm text-[#6B7280]">Auditions you've created and manage.</p>
             </div>
             <button
               onClick={() => onNavigate('auditions')}
-              className="text-sm font-bold text-[#4F46E5] hover:underline flex items-center gap-1"
+              className="shrink-0 py-2 sm:py-0 text-sm font-bold text-[#4F46E5] hover:underline flex items-center gap-1"
             >
               View All <ChevronRight size={16} />
             </button>
           </div>
 
           {ownedAuditions.length === 0 ? (
-            <div className="bg-white p-12 rounded-2xl border border-[#E5E7EB] text-center shadow-sm">
+            <div className="bg-white p-8 sm:p-12 rounded-2xl border border-[#E5E7EB] text-center shadow-sm">
               <Mic2 size={40} className="mx-auto mb-3 text-[#D1D5DB]" />
               <h4 className="text-lg font-bold text-[#374151] mb-2">No Auditions Yet</h4>
               <p className="text-sm text-[#6B7280] mb-5">Create your first audition and invite applicants to sign up.</p>
@@ -421,8 +421,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onClick={() => onSelectAudition(audition)}
                   className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-sm text-left hover:border-[#4F46E5] hover:shadow-md transition-all group"
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex-shrink-0">
                         <Mic2 size={18} />
                       </div>
@@ -439,7 +439,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                     {statusBadge(audition.status)}
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-[#6B7280]">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#6B7280]">
                     <span className="flex items-center gap-1">
                       <Users size={13} />
                       {audition.userCount} applicant{audition.userCount !== 1 ? 's' : ''}
@@ -464,24 +464,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <AnimatePresence>
         {slotPickerAuditionId !== null && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[80vh] flex flex-col"
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90dvh] sm:max-h-[80vh] flex flex-col"
             >
-              <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB]">
-                <h3 className="text-xl font-bold">Choose a Time Slot</h3>
+              <div className="flex items-center justify-between gap-3 p-5 sm:p-6 border-b border-[#E5E7EB]">
+                <h3 className="text-lg sm:text-xl font-bold">Choose a Time Slot</h3>
                 <button
                   onClick={() => setSlotPickerAuditionId(null)}
-                  className="p-1.5 text-[#6B7280] hover:text-[#111827] hover:bg-[#F3F4F6] rounded-lg transition-colors"
+                  className="p-2 shrink-0 text-[#6B7280] hover:text-[#111827] hover:bg-[#F3F4F6] rounded-lg transition-colors"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="p-6 overflow-y-auto flex-1">
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1">
                 {slotsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-[#4F46E5]" />
@@ -502,7 +502,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
                           })}
                         </p>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {dateSlots.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(slot => {
                             const isMySlot = slot.userId === user?.id && slot.status === 'booked';
                             const isBooking = bookingSlotId === slot.id;

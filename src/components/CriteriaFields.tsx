@@ -88,7 +88,7 @@ export function CriteriaFields({ criteria, onChange, compact }: Props) {
       {criteria.map((c, i) => (
         <div key={c.key} className="p-3 bg-white border border-[#E5E7EB] rounded-xl">
           <div className="flex flex-wrap sm:flex-nowrap gap-2 items-start">
-            <div className="flex-1 min-w-[160px] space-y-1.5">
+            <div className="flex-1 basis-full sm:basis-0 min-w-0 sm:min-w-[160px] space-y-1.5">
               <input
                 type="text"
                 value={c.title}
@@ -128,18 +128,18 @@ export function CriteriaFields({ criteria, onChange, compact }: Props) {
                 />
               </div>
             )}
-            <div className="flex items-center gap-0.5 pt-1">
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-[#9CA3AF] hover:text-[#4F46E5] disabled:opacity-30" title="Move up">
+            <div className="flex items-center gap-0.5 ml-auto self-end sm:ml-0 sm:self-auto sm:pt-1">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="p-2 sm:p-1 text-[#9CA3AF] hover:text-[#4F46E5] disabled:opacity-30" title="Move up">
                 <ArrowUp size={14} />
               </button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === criteria.length - 1} className="p-1 text-[#9CA3AF] hover:text-[#4F46E5] disabled:opacity-30" title="Move down">
+              <button type="button" onClick={() => move(i, 1)} disabled={i === criteria.length - 1} className="p-2 sm:p-1 text-[#9CA3AF] hover:text-[#4F46E5] disabled:opacity-30" title="Move down">
                 <ArrowDown size={14} />
               </button>
               <button
                 type="button"
                 onClick={() => onChange(criteria.filter(x => x.key !== c.key))}
                 disabled={criteria.length === 1}
-                className="p-1 text-[#9CA3AF] hover:text-[#EF4444] disabled:opacity-30"
+                className="p-2 sm:p-1 text-[#9CA3AF] hover:text-[#EF4444] disabled:opacity-30"
                 title="Remove"
               >
                 <Trash2 size={14} />
@@ -151,7 +151,7 @@ export function CriteriaFields({ criteria, onChange, compact }: Props) {
       <button
         type="button"
         onClick={() => onChange([...criteria, blankCriterion()])}
-        className="flex items-center gap-1.5 text-sm font-bold text-[#4F46E5] hover:underline"
+        className="flex items-center gap-1.5 py-1.5 sm:py-0 text-sm font-bold text-[#4F46E5] hover:underline"
       >
         <Plus size={14} /> Add criterion
       </button>

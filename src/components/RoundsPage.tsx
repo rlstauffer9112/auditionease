@@ -134,8 +134,8 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="mb-8">
-        <h2 className="text-3xl font-extrabold tracking-tight mb-2">Rounds</h2>
+      <div className="mb-6 sm:mb-8">
+        <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Rounds</h2>
         <p className="text-[#6B7280]">Score participants and move the best into the next round.</p>
       </div>
 
@@ -152,7 +152,7 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
       </div>
 
       {!auditionId ? (
-        <div className="bg-white p-16 rounded-3xl border border-[#E5E7EB] text-center">
+        <div className="bg-white p-8 sm:p-16 rounded-3xl border border-[#E5E7EB] text-center">
           <Trophy size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
           <h3 className="text-lg font-bold text-[#374151] mb-2">No auditions yet</h3>
           <p className="text-sm text-[#6B7280]">Create an audition first, then come back here to score participants.</p>
@@ -160,13 +160,13 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
       ) : loading && rounds.length === 0 ? (
         <div className="flex justify-center py-16"><Loader2 className="animate-spin text-[#4F46E5]" size={28} /></div>
       ) : rounds.length === 0 && isJudge ? (
-        <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center">
+        <div className="bg-white p-8 sm:p-12 rounded-3xl border border-[#E5E7EB] text-center">
           <PlayCircle size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
           <h3 className="text-lg font-bold text-[#374151] mb-2">Scoring hasn't started yet</h3>
           <p className="text-sm text-[#6B7280]">You'll be able to score participants here once the organizer starts Round 1.</p>
         </div>
       ) : rounds.length === 0 ? (
-        <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center">
+        <div className="bg-white p-6 sm:p-12 rounded-3xl border border-[#E5E7EB] text-center">
           <PlayCircle size={48} className="mx-auto mb-4 text-[#4F46E5]" />
           <h3 className="text-lg font-bold text-[#111827] mb-2">Ready to start scoring?</h3>
           <p className="text-sm text-[#6B7280] mb-6">
@@ -176,7 +176,7 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
             <select
               value={startTemplate}
               onChange={e => setStartTemplate(e.target.value)}
-              className="border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white text-sm"
+              className="w-full sm:w-auto border border-[#E5E7EB] rounded-xl px-4 py-3 bg-white text-sm"
             >
               <option value="">Simple (Overall 1–10)</option>
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -184,7 +184,7 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
             <button
               onClick={startRound}
               disabled={starting}
-              className="flex items-center gap-2 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] disabled:opacity-50"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] disabled:opacity-50"
             >
               {starting && <Loader2 size={16} className="animate-spin" />}
               Start scoring
@@ -216,7 +216,7 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
 
           {finished && (
             <div className="flex items-center gap-2 mb-6 bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] px-4 py-3 rounded-2xl text-sm">
-              <Trophy size={16} /> Audition complete — {lastRound.advancedCount} selected in {lastRound.title}.
+              <Trophy size={16} className="shrink-0" /> Audition complete — {lastRound.advancedCount} selected in {lastRound.title}.
             </div>
           )}
 
@@ -230,7 +230,7 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
                   </span>
                 ))}
                 {round.status === 'open' && !isJudge && (
-                  <button onClick={() => setShowCriteria(true)} disabled={!detail} className="flex items-center gap-1 text-xs font-bold text-[#4F46E5] hover:underline ml-1">
+                  <button onClick={() => setShowCriteria(true)} disabled={!detail} className="flex items-center gap-1 py-1.5 sm:py-0 text-xs font-bold text-[#4F46E5] hover:underline ml-1">
                     <Pencil size={12} /> Edit criteria
                   </button>
                 )}
@@ -241,16 +241,16 @@ export function RoundsPage({ authFetch, auditions, initialAuditionId }: Props) {
                   {detail?.blindJudging && ' · Blind judging'}
                 </span>
               ) : (
-              <div className="flex bg-[#F3F4F6] p-1 rounded-xl">
+              <div className="flex w-full sm:w-auto bg-[#F3F4F6] p-1 rounded-xl">
                 <button
                   onClick={() => setTab('score')}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === 'score' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
+                  className={`flex flex-1 sm:flex-none justify-center items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === 'score' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
                 >
                   <ClipboardCheck size={14} /> Score
                 </button>
                 <button
                   onClick={() => setTab('advance')}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === 'advance' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
+                  className={`flex flex-1 sm:flex-none justify-center items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === 'advance' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280]'}`}
                 >
                   <ListOrdered size={14} /> {round.status === 'open' ? 'Advance' : 'Results'}
                 </button>

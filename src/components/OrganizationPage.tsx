@@ -310,9 +310,9 @@ export function OrganizationPage({ authFetch }: Props) {
         key="create-org"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-lg mx-auto mt-20"
+        className="max-w-lg mx-auto mt-8 sm:mt-20"
       >
-        <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 text-center">
+        <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-6 sm:p-8 text-center">
           <div className="w-16 h-16 bg-[#EEF2FF] rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Building2 size={32} className="text-[#4F46E5]" />
           </div>
@@ -356,18 +356,18 @@ export function OrganizationPage({ authFetch }: Props) {
       exit={{ opacity: 0, y: -20 }}
       className="max-w-5xl mx-auto"
     >
-      <div className="mb-10">
-        <h2 className="text-3xl font-extrabold tracking-tight mb-2">Organization</h2>
+      <div className="mb-6 sm:mb-10">
+        <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Organization</h2>
         <p className="text-[#6B7280]">Manage your organization settings, divisions, and team members.</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#F3F4F6] rounded-2xl p-1 mb-8 w-fit">
+      <div className="flex gap-1 bg-[#F3F4F6] rounded-2xl p-1 mb-6 sm:mb-8 w-fit max-w-full overflow-x-auto">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            className={`flex items-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
               activeTab === tab.key
                 ? 'bg-white text-[#111827] shadow-sm'
                 : 'text-[#6B7280] hover:text-[#374151]'
@@ -388,7 +388,7 @@ export function OrganizationPage({ authFetch }: Props) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8">
+            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-5 sm:p-8">
               <h3 className="text-lg font-bold mb-6">General Settings</h3>
               <div className="max-w-md">
                 <label className="block text-sm font-medium text-[#374151] mb-2">Organization Name</label>
@@ -429,8 +429,8 @@ export function OrganizationPage({ authFetch }: Props) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8">
-              <div className="flex justify-between items-center mb-6">
+            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-4 sm:p-8">
+              <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
                 <h3 className="text-lg font-bold">Divisions</h3>
                 {isOwnerOrAdmin && (
                   <button
@@ -444,15 +444,15 @@ export function OrganizationPage({ authFetch }: Props) {
               </div>
 
               {showAddDivision && (
-                <div className="mb-6 p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
-                  <div className="flex gap-3">
+                <div className="mb-6 p-3 sm:p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
+                  <div className="flex gap-2 sm:gap-3">
                     <input
                       type="text"
                       placeholder="Division name"
                       value={newDivisionTitle}
                       onChange={(e) => setNewDivisionTitle(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && createDivision()}
-                      className="flex-1 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
+                      className="flex-1 min-w-0 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
                       autoFocus
                     />
                     <button
@@ -482,15 +482,15 @@ export function OrganizationPage({ authFetch }: Props) {
               ) : (
                 <div className="space-y-3">
                   {divisionsList.map(div => (
-                    <div key={div.id} className="border border-[#E5E7EB] rounded-2xl p-5 hover:border-[#C7D2FE] transition-colors">
+                    <div key={div.id} className="border border-[#E5E7EB] rounded-2xl p-4 sm:p-5 hover:border-[#C7D2FE] transition-colors">
                       {editingDivision?.id === div.id ? (
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 sm:gap-3">
                           <input
                             type="text"
                             value={editDivisionTitle}
                             onChange={(e) => setEditDivisionTitle(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && updateDivision()}
-                            className="flex-1 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
+                            className="flex-1 min-w-0 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
                             autoFocus
                           />
                           <button
@@ -509,25 +509,25 @@ export function OrganizationPage({ authFetch }: Props) {
                         </div>
                       ) : (
                         <>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl">
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="p-2 bg-[#EEF2FF] text-[#4F46E5] rounded-xl flex-shrink-0">
                                 <FolderTree size={16} />
                               </div>
-                              <span className="font-bold text-[#111827]">{div.title}</span>
+                              <span className="font-bold text-[#111827] break-words min-w-0">{div.title}</span>
                             </div>
                             {isOwnerOrAdmin && (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                                 <button
                                   onClick={() => { setEditingDivision(div); setEditDivisionTitle(div.title); }}
-                                  className="text-[#6B7280] hover:text-[#4F46E5] p-1.5 rounded-lg hover:bg-[#EEF2FF] transition-colors"
+                                  className="text-[#6B7280] hover:text-[#4F46E5] p-2 sm:p-1.5 rounded-lg hover:bg-[#EEF2FF] transition-colors"
                                 >
                                   <Pencil size={14} />
                                 </button>
                                 <button
                                   onClick={() => deleteDivision(div.id)}
                                   disabled={deletingDivisionId === div.id}
-                                  className="text-[#6B7280] hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                                  className="text-[#6B7280] hover:text-red-600 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 transition-colors"
                                 >
                                   {deletingDivisionId === div.id ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
                                 </button>
@@ -535,7 +535,7 @@ export function OrganizationPage({ authFetch }: Props) {
                             )}
                           </div>
                           {/* Managers */}
-                          <div className="ml-11">
+                          <div className="sm:ml-11">
                             <p className="text-[10px] font-bold text-[#9CA3AF] uppercase tracking-wider mb-1.5">Managers</p>
                             {div.managers.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-2">
@@ -546,7 +546,7 @@ export function OrganizationPage({ authFetch }: Props) {
                                     {isOwnerOrAdmin && (
                                       <button
                                         onClick={() => removeManager(div.id, m.userId)}
-                                        className="ml-1 text-[#9CA3AF] hover:text-red-500"
+                                        className="ml-0.5 -my-1 -mr-2 p-1.5 sm:ml-1 sm:my-0 sm:mr-0 sm:p-0 text-[#9CA3AF] hover:text-red-500"
                                       >
                                         <X size={12} />
                                       </button>
@@ -561,7 +561,7 @@ export function OrganizationPage({ authFetch }: Props) {
                                   <select
                                     value={assignManagerUserId}
                                     onChange={(e) => setAssignManagerUserId(e.target.value)}
-                                    className="flex-1 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm"
+                                    className="flex-1 min-w-0 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm"
                                   >
                                     <option value="">Select a manager...</option>
                                     {acceptedManagers
@@ -587,7 +587,7 @@ export function OrganizationPage({ authFetch }: Props) {
                               ) : (
                                 <button
                                   onClick={() => setAssignManagerDivId(div.id)}
-                                  className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1 mt-1"
+                                  className="text-[#4F46E5] text-xs font-medium hover:underline flex items-center gap-1 mt-1 py-1 sm:py-0"
                                 >
                                   <UserPlus size={12} />
                                   Assign Manager
@@ -623,8 +623,8 @@ export function OrganizationPage({ authFetch }: Props) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8">
-              <div className="flex justify-between items-center mb-6">
+            <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-4 sm:p-8">
+              <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
                 <h3 className="text-lg font-bold">Team Members</h3>
                 {isOwnerOrAdmin && (
                   <button
@@ -638,20 +638,20 @@ export function OrganizationPage({ authFetch }: Props) {
               </div>
 
               {showInvite && (
-                <div className="mb-6 p-5 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
+                <div className="mb-6 p-4 sm:p-5 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
                   <h4 className="font-bold text-sm mb-3">Send Invitation</h4>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap sm:flex-nowrap gap-3">
                     <input
                       type="email"
                       placeholder="Email address"
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
-                      className="flex-1 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
+                      className="w-full sm:w-auto sm:flex-1 min-w-0 border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
                     />
                     <select
                       value={inviteRole}
                       onChange={(e) => setInviteRole(e.target.value as 'admin' | 'manager')}
-                      className="border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm bg-white"
+                      className="flex-1 sm:flex-none border border-[#E5E7EB] rounded-xl px-4 py-2.5 text-sm bg-white"
                     >
                       <option value="manager">Manager</option>
                       <option value="admin">Admin</option>
@@ -678,17 +678,17 @@ export function OrganizationPage({ authFetch }: Props) {
                 <div className="space-y-2">
                   {/* Owner row */}
                   {owner && (
-                    <div className="flex items-center justify-between p-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-2xl">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-[#F59E0B] rounded-full flex items-center justify-center text-white text-xs font-bold">
+                    <div className="flex items-center justify-between gap-3 p-3 sm:p-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-2xl">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 bg-[#F59E0B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                           {owner.firstName.charAt(0)}
                         </div>
-                        <div>
-                          <p className="font-bold text-sm">{owner.firstName} {owner.lastName}</p>
-                          <p className="text-xs text-[#6B7280]">{owner.email}</p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm truncate">{owner.firstName} {owner.lastName}</p>
+                          <p className="text-xs text-[#6B7280] truncate">{owner.email}</p>
                         </div>
                       </div>
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#FEF3C7] text-[#92400E] rounded-lg text-xs font-bold">
+                      <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1 bg-[#FEF3C7] text-[#92400E] rounded-lg text-xs font-bold">
                         <Shield size={12} />
                         Owner
                       </span>
@@ -697,20 +697,20 @@ export function OrganizationPage({ authFetch }: Props) {
 
                   {/* Members */}
                   {members.map(m => (
-                    <div key={m.id} className={`flex items-center justify-between p-4 rounded-2xl border ${m.status === 'pending' ? 'bg-[#F9FAFB] border-dashed border-[#D1D5DB]' : 'border-[#E5E7EB]'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ${m.status === 'pending' ? 'bg-[#9CA3AF]' : m.role === 'admin' ? 'bg-[#4F46E5]' : 'bg-[#059669]'}`}>
+                    <div key={m.id} className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 rounded-2xl border ${m.status === 'pending' ? 'bg-[#F9FAFB] border-dashed border-[#D1D5DB]' : 'border-[#E5E7EB]'}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${m.status === 'pending' ? 'bg-[#9CA3AF]' : m.role === 'admin' ? 'bg-[#4F46E5]' : 'bg-[#059669]'}`}>
                           {m.firstName ? m.firstName.charAt(0) : m.email.charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                          <p className="font-bold text-sm">
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm break-words">
                             {m.firstName ? `${m.firstName} ${m.lastName}` : m.email}
                             {m.status === 'pending' && <span className="ml-2 text-xs text-[#9CA3AF] font-normal">(Pending)</span>}
                           </p>
-                          <p className="text-xs text-[#6B7280]">{m.email}</p>
+                          <p className="text-xs text-[#6B7280] truncate">{m.email}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-end gap-3 flex-shrink-0">
                         {isOwnerOrAdmin ? (
                           <select
                             value={m.role}
@@ -729,7 +729,7 @@ export function OrganizationPage({ authFetch }: Props) {
                         {isOwnerOrAdmin && (
                           <button
                             onClick={() => removeUser(m.id)}
-                            className="text-[#9CA3AF] hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                            className="text-[#9CA3AF] hover:text-red-600 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 transition-colors"
                           >
                             <Trash2 size={14} />
                           </button>

@@ -331,14 +331,14 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
         currentGroup = row[result.groupBy];
         out.push(
           <tr key={`g${idx}`} className="bg-[#EEF2FF] print:bg-[#F3F4F6] break-after-avoid">
-            <td colSpan={visibleColumns.length} className="px-6 py-2.5 text-sm font-bold text-[#111827]">{String(currentGroup ?? '')}</td>
+            <td colSpan={visibleColumns.length} className="px-3 sm:px-6 print:px-6 py-2.5 text-sm font-bold text-[#111827]">{String(currentGroup ?? '')}</td>
           </tr>,
         );
       }
       out.push(
         <tr key={idx} className={`break-inside-avoid ${row._emphasis ? 'bg-[#F9FAFB] font-bold' : ''}`}>
           {visibleColumns.map(col => (
-            <td key={col.field} className={`px-6 py-3 text-sm align-top print:px-2 print:py-1.5 ${col.align === 'right' ? 'text-right tabular-nums' : ''}`}>
+            <td key={col.field} className={`px-3 sm:px-6 py-3 text-sm align-top print:px-2 print:py-1.5 ${col.align === 'right' ? 'text-right tabular-nums' : ''}`}>
               {String(row[col.field] ?? '')}
             </td>
           ))}
@@ -361,14 +361,14 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
     >
       {view === 'list' && (
         <>
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
             <div>
-              <h2 className="text-3xl font-extrabold tracking-tight mb-2">Reports</h2>
+              <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">Reports</h2>
               <p className="text-[#6B7280]">Run a standard report or build your own. Choose the audition and round when you run it.</p>
             </div>
             <button
               onClick={() => openBuilder()}
-              className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100"
+              className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#4338CA] transition-colors shadow-lg shadow-indigo-100 flex-shrink-0"
             >
               <Plus size={20} />
               New Report
@@ -376,7 +376,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
           </div>
 
           <h3 className="text-lg font-bold mb-3">Standard reports</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 sm:mb-10">
             {STANDARD_REPORTS.map(def => {
               const Icon = STANDARD_ICONS[def.key] ?? FileBarChart;
               return (
@@ -399,17 +399,17 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
 
           <h3 className="text-lg font-bold mb-3">Your reports</h3>
           {reportsList.length === 0 ? (
-            <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] text-center">
+            <div className="bg-white p-8 sm:p-12 rounded-3xl border border-[#E5E7EB] text-center">
               <FileBarChart size={40} className="mx-auto mb-3 text-[#D1D5DB]" />
               <p className="text-sm text-[#6B7280]">Build a report to pick exactly which fields, filters and sort order you need — including round scores, judges and comments.</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm divide-y divide-[#F3F4F6]">
               {reportsList.map(report => (
-                <div key={report.id} className="flex items-center gap-4 px-4 py-3 hover:bg-[#F9FAFB] transition-colors">
+                <div key={report.id} className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-[#F9FAFB] transition-colors">
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => openBuilder(report)} className="p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Edit report"><Pencil size={15} /></button>
-                    <button onClick={() => deleteReport(report.id)} className="p-1.5 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg" title="Delete report"><Trash2 size={15} /></button>
+                    <button onClick={() => openBuilder(report)} className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#4F46E5] hover:bg-[#EEF2FF] rounded-lg" title="Edit report"><Pencil size={15} /></button>
+                    <button onClick={() => deleteReport(report.id)} className="p-2 sm:p-1.5 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#FEF2F2] rounded-lg" title="Delete report"><Trash2 size={15} /></button>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-[#111827] truncate">{report.name}</p>
@@ -420,7 +420,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                   </div>
                   <button
                     onClick={() => openRun({ kind: 'custom', report })}
-                    className="flex-shrink-0 bg-[#4F46E5] text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:bg-[#4338CA] flex items-center gap-1.5"
+                    className="flex-shrink-0 bg-[#4F46E5] text-white px-4 py-2 sm:py-1.5 rounded-lg font-bold text-xs hover:bg-[#4338CA] flex items-center gap-1.5"
                   >
                     <Play size={14} /> Run
                   </button>
@@ -434,8 +434,8 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
       {view === 'builder' && (
         <>
           <button onClick={() => setView('list')} className="text-[#4F46E5] font-bold flex items-center gap-2 hover:underline mb-6">← Back to Reports</button>
-          <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-8 space-y-8">
-            <h3 className="text-2xl font-bold">{editingId ? 'Edit Report' : 'Create Report'}</h3>
+          <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm p-5 sm:p-8 space-y-6 sm:space-y-8">
+            <h3 className="text-xl sm:text-2xl font-bold">{editingId ? 'Edit Report' : 'Create Report'}</h3>
             <div>
               <label className="block text-sm font-bold text-[#374151] mb-1.5">Report Name</label>
               <input
@@ -472,7 +472,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                         const ops = getOperatorsForType(fieldDef(e.target.value)?.type || 'text');
                         updateCriterion(idx, { field: e.target.value, operator: ops[0]?.value || 'equals', value: '' });
                       }}
-                      className="flex-1 min-w-[160px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
+                      className="flex-1 min-w-0 sm:min-w-[160px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
                     >
                       <option value="" disabled>Select field...</option>
                       {fieldOptions(availableFields)}
@@ -480,7 +480,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                     <select
                       value={criterion.operator}
                       onChange={e => updateCriterion(idx, { operator: e.target.value, ...(['is_empty', 'is_not_empty'].includes(e.target.value) ? { value: '' } : {}) })}
-                      className="w-44 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
+                      className="flex-1 sm:flex-none sm:w-44 border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
                     >
                       {getOperatorsForType(fieldDef(criterion.field)?.type || 'text').map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
                     </select>
@@ -508,7 +508,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
             <div>
               <h4 className="text-lg font-bold mb-4 flex items-center gap-2"><ClipboardList size={20} className="text-[#4F46E5]" /> Display Columns</h4>
               <p className="text-sm text-[#6B7280] mb-4">Round fields come from the round you choose when running the report (or each participant's latest round).</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <h5 className="text-xs font-bold text-[#6B7280] uppercase tracking-wider mb-2">Selected Columns</h5>
                   <div className="border border-[#E5E7EB] rounded-xl min-h-[240px] max-h-[360px] overflow-y-auto">
@@ -523,16 +523,16 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                             <button
                               onClick={() => { const u = [...columns]; [u[idx - 1], u[idx]] = [u[idx], u[idx - 1]]; setColumns(u); }}
                               disabled={idx === 0}
-                              className="p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25"
+                              className="p-2 sm:p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25"
                               title="Move up"
                             ><ArrowUp size={14} /></button>
                             <button
                               onClick={() => { const u = [...columns]; [u[idx], u[idx + 1]] = [u[idx + 1], u[idx]]; setColumns(u); }}
                               disabled={idx === columns.length - 1}
-                              className="p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25"
+                              className="p-2 sm:p-1 rounded hover:bg-[#EEF2FF] text-[#6B7280] hover:text-[#4F46E5] disabled:opacity-25"
                               title="Move down"
                             ><ArrowDown size={14} /></button>
-                            <button onClick={() => setColumns(columns.filter(c => c.field !== col.field))} className="p-1 rounded hover:bg-[#FEF2F2] text-[#D1D5DB] hover:text-[#EF4444]" title="Remove"><XCircle size={14} /></button>
+                            <button onClick={() => setColumns(columns.filter(c => c.field !== col.field))} className="p-2 sm:p-1 rounded hover:bg-[#FEF2F2] text-[#D1D5DB] hover:text-[#EF4444]" title="Remove"><XCircle size={14} /></button>
                           </div>
                         ))}
                       </div>
@@ -580,7 +580,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                 <select
                   value={sort?.field ?? ''}
                   onChange={e => setSort(e.target.value ? { field: e.target.value, dir: sort?.dir ?? 'asc' } : null)}
-                  className="min-w-[220px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
+                  className="w-full sm:w-auto sm:min-w-[220px] border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
                 >
                   <option value="">No sorting</option>
                   {fieldOptions(availableFields)}
@@ -589,7 +589,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                   <select
                     value={sort.dir}
                     onChange={e => setSort({ ...sort, dir: e.target.value as 'asc' | 'desc' })}
-                    className="border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
+                    className="w-full sm:w-auto border border-[#E5E7EB] rounded-lg px-3 py-2 text-sm bg-white"
                   >
                     <option value="asc">Ascending (A→Z, low→high)</option>
                     <option value="desc">Descending (Z→A, high→low)</option>
@@ -599,11 +599,11 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
             </div>
 
             <div className="flex gap-3 pt-4 border-t border-[#E5E7EB]">
-              <button onClick={() => setView('list')} className="px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]">Cancel</button>
+              <button onClick={() => setView('list')} className="flex-1 sm:flex-none px-6 py-3 border border-[#E5E7EB] rounded-xl font-bold hover:bg-[#F9FAFB]">Cancel</button>
               <button
                 onClick={saveReport}
                 disabled={!name.trim() || columns.length === 0}
-                className="bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 sm:flex-none bg-[#4F46E5] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#4338CA] shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {editingId ? 'Update Report' : 'Save Report'}
               </button>
@@ -617,15 +617,15 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
           <button onClick={() => setView('list')} className="text-[#4F46E5] font-bold flex items-center gap-2 hover:underline mb-6 print:hidden">← Back to Reports</button>
 
           <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
-            <div>
-              <h2 className="text-3xl font-extrabold tracking-tight mb-1 print:text-2xl">{result.title}</h2>
+            <div className="min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-1 print:text-2xl break-words">{result.title}</h2>
               {result.subtitle && <p className="text-[#374151] font-medium">{result.subtitle}</p>}
               <p className="text-sm text-[#6B7280]">
                 {result.rows.filter(r => !r._emphasis).length} row{result.rows.length !== 1 ? 's' : ''}
                 {generatedAt && <> · Generated {generatedAt.toLocaleString()}</>}
               </p>
             </div>
-            <div className="flex items-center gap-2 print:hidden">
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
               <button
                 onClick={() => window.print()}
                 className="bg-white text-[#4F46E5] border border-[#4F46E5] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#EEF2FF]"
@@ -673,7 +673,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
 
           <div className="bg-white rounded-3xl border border-[#E5E7EB] overflow-hidden shadow-sm print:rounded-none print:shadow-none print:border-0">
             {result.rows.length === 0 ? (
-              <div className="p-12 text-center text-[#6B7280]">
+              <div className="p-8 sm:p-12 print:p-12 text-center text-[#6B7280]">
                 <Search size={48} className="mx-auto mb-4 text-[#D1D5DB]" />
                 <h3 className="text-lg font-bold text-[#374151] mb-2">No Results</h3>
                 <p className="text-sm">Nothing matches this report for the audition and round you chose.</p>
@@ -684,7 +684,7 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
                   <thead>
                     <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
                       {visibleColumns.map(col => (
-                        <th key={col.field} className={`px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider whitespace-nowrap print:px-2 print:py-2 ${col.align === 'right' ? 'text-right' : ''}`}>
+                        <th key={col.field} className={`px-3 sm:px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider whitespace-nowrap print:px-2 print:py-2 ${col.align === 'right' ? 'text-right' : ''}`}>
                           {col.label}
                         </th>
                       ))}
@@ -699,9 +699,9 @@ export function ReportsPage({ authFetch, customAttributes, canExport, onUpgrade 
       )}
 
       {runTarget && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6 print:hidden" onClick={() => setRunTarget(null)}>
-          <div className="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-1">Run {runTarget.kind === 'custom' ? runTarget.report.name : runTarget.def.name}</h3>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 print:hidden" onClick={() => setRunTarget(null)}>
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 sm:p-8 shadow-2xl max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-1 break-words">Run {runTarget.kind === 'custom' ? runTarget.report.name : runTarget.def.name}</h3>
             <p className="text-sm text-[#6B7280] mb-6">{runTarget.kind === 'standard' ? runTarget.def.description : 'Choose which audition and round to report on.'}</p>
             <div className="space-y-4">
               <div>

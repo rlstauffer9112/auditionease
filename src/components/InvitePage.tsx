@@ -216,13 +216,13 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
         return (
           <div className="space-y-2">
             {options.map(opt => (
-              <label key={opt} className="flex items-center gap-3 cursor-pointer">
+              <label key={opt} className="flex items-center gap-3 cursor-pointer py-1 sm:py-0">
                 <input type="checkbox" checked={selected.includes(opt)}
                   onChange={e => {
                     const next = e.target.checked ? [...selected, opt] : selected.filter(s => s !== opt);
                     setCustomData({ ...customData, [attr.label]: next });
                   }}
-                  className="w-4 h-4 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                  className="w-5 h-5 sm:w-4 sm:h-4 shrink-0 rounded border-[#D1D5DB] text-[#4F46E5] focus:ring-[#4F46E5]"
                 />
                 <span className="text-sm font-medium text-[#374151]">{opt}</span>
               </label>
@@ -247,13 +247,13 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl text-center border border-[#E5E7EB]"
+          className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-xl text-center border border-[#E5E7EB]"
         >
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <span className="text-3xl">!</span>
           </div>
           <h2 className="text-2xl font-bold mb-4">Audition Not Found</h2>
-          <p className="text-gray-600">{errorMsg || 'This invite link is invalid or the audition no longer exists.'}</p>
+          <p className="text-gray-600 break-words">{errorMsg || 'This invite link is invalid or the audition no longer exists.'}</p>
         </motion.div>
       </div>
     );
@@ -263,7 +263,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl text-center border border-[#E5E7EB]"
+          className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-xl text-center border border-[#E5E7EB]"
         >
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle className="w-8 h-8 text-green-600" />
@@ -287,14 +287,14 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-4">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="max-w-lg w-full bg-white rounded-3xl p-8 shadow-xl border border-[#E5E7EB]"
+        className="max-w-lg w-full bg-white rounded-3xl p-5 sm:p-8 shadow-xl border border-[#E5E7EB]"
       >
-        <div className="text-center mb-8">
+        <div className="text-center mb-6 sm:mb-8">
           <div className="w-12 h-12 bg-[#4F46E5] rounded-xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-indigo-100">
             <Mic2 size={24} />
           </div>
-          <h1 className="text-2xl font-black tracking-tight mb-1">{audition?.title}</h1>
-          {audition?.description && <p className="text-gray-500 text-sm">{audition.description}</p>}
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight mb-1 break-words">{audition?.title}</h1>
+          {audition?.description && <p className="text-gray-500 text-sm break-words">{audition.description}</p>}
           {audition?.date && (
             <p className="text-xs text-gray-400 mt-2 font-medium">
               {new Date(audition.date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -333,7 +333,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
         {step === 'verify' && (
           <form onSubmit={handleVerifyCode} className="space-y-5">
             <div className="text-center mb-2">
-              <p className="text-sm text-gray-500">We sent a 6-digit code to <strong>{email}</strong></p>
+              <p className="text-sm text-gray-500">We sent a 6-digit code to <strong className="break-all">{email}</strong></p>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Verification Code</label>
@@ -349,7 +349,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
               {verifyLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-5 h-5" /></>}
             </button>
             <button type="button" onClick={() => { setStep('email'); setVerifyCode(''); setErrorMsg(''); }}
-              className="w-full text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
+              className="w-full py-2 text-sm font-bold text-gray-400 hover:text-[#4F46E5] transition-colors"
             >
               Use a different email
             </button>
@@ -363,7 +363,7 @@ export const InvitePage: React.FC<InvitePageProps> = ({ inviteCode }) => {
                 Welcome back! Your information has been pre-filled. Review and update as needed.
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-bold text-[#374151] mb-1.5">First Name</label>
                 <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)}
